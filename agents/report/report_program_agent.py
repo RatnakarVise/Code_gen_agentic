@@ -55,7 +55,7 @@ class ReportProgramAgent(BaseAgent):
         {draft_code}
         """
 
-        resp_refine = self.llm([HumanMessage(content=refine_prompt)])
+        resp_refine = self.llm.invoke([HumanMessage(content=refine_prompt)])
         final_code = getattr(resp_refine, "content", str(resp_refine))
         final_code = re.sub(r"```(?:abap)?|```", "", final_code).strip()
 
