@@ -1,5 +1,6 @@
 from pathlib import Path
-from langchain.schema import HumanMessage
+from langchain_core.messages import HumanMessage
+# from langchain.schema import HumanMessage
 from agents.base_agent import BaseAgent
 
 class TableAgent(BaseAgent):

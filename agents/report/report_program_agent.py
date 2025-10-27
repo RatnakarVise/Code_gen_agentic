@@ -1,7 +1,8 @@
 from pathlib import Path
 import re
 import logging
-from langchain.schema import HumanMessage
+from langchain_core.messages import HumanMessage
+# from langchain.schema import HumanMessage
 from agents.base_agent import BaseAgent
 
 class ReportProgramAgent(BaseAgent):
