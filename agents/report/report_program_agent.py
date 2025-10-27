@@ -35,7 +35,7 @@ class ReportProgramAgent(BaseAgent):
         {section_text}
         """
 
-        resp_draft = self.llm([HumanMessage(content=draft_prompt)])
+        resp_draft = self.llm.invoke([HumanMessage(content=draft_prompt)])
         draft_code = getattr(resp_draft, "content", str(resp_draft))
         draft_code = re.sub(r"```(?:abap)?|```", "", draft_code).strip()
 

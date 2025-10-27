@@ -20,7 +20,7 @@ class StructureAgent(BaseAgent):
         Context:
         {section_text}
         """
-        resp = self.llm([HumanMessage(content=prompt)])
+        resp = self.llm.invoke([HumanMessage(content=prompt)])
         text = getattr(resp, "content", str(resp)).strip()
 
         out_path = self.job_dir / "Structure.txt"
