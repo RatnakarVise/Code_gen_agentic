@@ -1,0 +1,32 @@
+### 1) ABAP Transparent Table Definition (DDIC)
+
+```abap
+TABLE ZPO_CLOSE_LOG
+  WITH PARAMETERS
+    DATA CLASS = 'APPL0'
+    SIZE CATEGORY = '0'
+    DELIVERY CLASS = 'A'
+    BUFFERING = 'Not allowed'.
+
+FIELDS
+  MANDT    TYPE MANDT      " Client
+  EBELN    TYPE EBELN      " Purchase Order Number
+  EBELP    TYPE EBELP      " Item Number
+  ERNAM    TYPE ERNAM      " User who executed closure
+  ERDAT    TYPE ERDAT      " Date of closure
+  ERZET    TYPE ERZET      " Time of closure
+  STATUS   TYPE CHAR1      " Closure Status (S/F)
+  MESSAGE  TYPE CHAR100    " Status Message
+```
+
+### 2) Purpose Section
+
+**Purpose:**
+The `ZPO_CLOSE_LOG` table is designed to store logs related to the closure of purchasing documents in the SAP system. This table captures essential details about the closure process, including the purchase order number, item number, user who executed the closure, date and time of closure, closure status, and any relevant status messages. 
+
+**Key Relationships:**
+- **EKKO (Purchasing Document Header):** The `EBELN` field in `ZPO_CLOSE_LOG` serves as a foreign key that links to the `EKKO` table, which contains the header information for purchasing documents. This relationship allows for tracking the closure of specific purchase orders.
+  
+- **EKPO (Purchasing Document Item):** The `EBELP` field in `ZPO_CLOSE_LOG` corresponds to the item number in the `EKPO` table, which contains item-level details for each purchasing document. This relationship enables detailed logging of closures at the item level.
+
+The `ZPO_CLOSE_LOG` table is crucial for auditing and tracking the closure of purchase orders, providing transparency and accountability in the procurement process. It can be used for reporting purposes, allowing users to analyze closure activities and statuses over time.

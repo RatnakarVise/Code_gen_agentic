@@ -1,0 +1,144 @@
+REPORT ZMM_CLOSE_OPEN_PO.
+
+TABLES: EKKO, EKPO, ZPO_CLOSE_LOG.
+
+TYPES: BEGIN OF ty_po_close,
+         ebeln TYPE EKKO-EBELN,
+         ebelp TYPE EKPO-EBELP,
+         lifnr TYPE EKKO-LIFNR,
+         matnr TYPE EKPO-MATNR,
+         open_qty TYPE EKPO-MENGE,
+         closure_flag TYPE CHAR1,
+         status_msg TYPE STRING,
+       END OF ty_po_close.
+
+DATA: lt_po_close TYPE TABLE OF ty_po_close,
+      ls_po_close TYPE ty_po_close,
+      lv_simulate TYPE CHAR1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+SELECT-OPTIONS: s_ekorg FOR EKKO-EKORG,
+                s_werks FOR EKPO-WERKS,
+                s_lifnr FOR EKKO-LIFNR,
+                s_ebeln FOR EKKO-EBELN,
+                s_date FOR EKPO-BEDAT.
+PARAMETERS: p_simulate TYPE CHAR1 AS CHECKBOX.
+SELECTION-SCREEN END OF BLOCK b1.
+
+START-OF-SELECTION.
+  " Fetch open purchase orders
+  PERFORM fetch_open_pos.
+  " Display ALV grid
+  PERFORM display_alv.
+
+FORM fetch_open_pos.
+  " Select open purchase orders based on user selection
+  SELECT ebeln, ebelp, lifnr, matnr, menge
+    INTO TABLE lt_po_close
+    FROM ekpo
+    WHERE ebeln IN s_ebeln
+      AND werks IN s_werks
+      AND lifnr IN s_lifnr
+      AND bedat IN s_date
+      AND loekz IS INITIAL. " Only open POs
+
+  LOOP AT lt_po_close INTO ls_po_close.
+    " Placeholder for actual calculation of open quantity
+    ls_po_close-open_qty = ls_po_close-open_qty.
+    ls_po_close-closure_flag = 'X'. " Mark for closure
+    APPEND ls_po_close TO lt_po_close.
+  ENDLOOP.
+ENDFORM.
+
+FORM display_alv.
+  DATA: lo_alv TYPE REF TO cl_gui_alv_grid,
+        lt_fieldcat TYPE lvc_t_fcat,
+        ls_fieldcat TYPE lvc_s_fcat.
+
+  " Define field catalog for ALV
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'EBELN'.
+  ls_fieldcat-seltext_m = 'PO Number'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'EBELP'.
+  ls_fieldcat-seltext_m = 'Item'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'LIFNR'.
+  ls_fieldcat-seltext_m = 'Vendor'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'MATNR'.
+  ls_fieldcat-seltext_m = 'Material'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'OPEN_QTY'.
+  ls_fieldcat-seltext_m = 'Open Qty'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'CLOSURE_FLAG'.
+  ls_fieldcat-seltext_m = 'Closure Flag'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'STATUS_MSG'.
+  ls_fieldcat-seltext_m = 'Status Message'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  " Create ALV grid
+  CREATE OBJECT lo_alv
+    EXPORTING
+      i_parent = cl_gui_container=>screen0.
+
+  " Set ALV data
+  CALL METHOD lo_alv->set_table_for_first_display
+    EXPORTING
+      i_structure_name = 'ZSTR_PO_CLOSE'
+      it_fieldcatalog = lt_fieldcat
+    CHANGING
+      it_outtab = lt_po_close.
+
+  " Logic to handle user selection can be added here
+ENDFORM.
+
+FORM close_selected_pos.
+  " Loop through selected purchase orders for closure
+  LOOP AT lt_po_close INTO ls_po_close WHERE closure_flag = 'X'.
+    CALL FUNCTION 'BAPI_PO_CHANGE'
+      EXPORTING
+        purchaseorder = ls_po_close-ebeln
+        item = ls_po_close-ebelp
+        delivery_complete = 'X' " Set delivery completion indicator
+      IMPORTING
+        return = DATA(lv_return).
+
+    " Log the closure status
+    MOVE-CORRESPONDING lv_return TO ls_po_close.
+    INSERT VALUE #( ebeln = ls_po_close-ebeln
+                     ebelp = ls_po_close-ebelp
+                     status_msg = lv_return-message ) INTO ZPO_CLOSE_LOG.
+
+    IF lv_return-type = 'S'.
+      ls_po_close-status_msg = 'Closed Successfully'.
+    ELSE.
+      ls_po_close-status_msg = 'Closure Failed: ' && lv_return-message.
+    ENDIF.
+  ENDLOOP.
+
+  " Commit changes
+  CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'.
+ENDFORM.
+
+AT USER-COMMAND.
+  IF sy-ucomm = 'CLOSE'.
+    " Close selected purchase orders
+    PERFORM close_selected_pos.
+    " Refresh ALV display
+    PERFORM display_alv.
+  ENDIF.

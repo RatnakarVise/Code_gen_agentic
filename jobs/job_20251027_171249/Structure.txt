@@ -1,0 +1,31 @@
+Certainly! Below is the ABAP Data Dictionary (DDIC) structure DDL code that you can directly paste into Eclipse to generate the structure. Additionally, I've included a 'PURPOSE' section explaining the overall use of this structure.
+
+### 1) ABAP DDIC Structure DDL Code
+
+```abap
+@AbapCatalog.sqlViewName: 'ZSTR_PO_CLOSE'
+@AbapCatalog.compiler.compareFilter: 'ZSTR_PO_CLOSE'
+@EndUserText.label: 'Data Structure for PO Closure Processing'
+define structure ZSTR_PO_CLOSE {
+  field EBELN  type EBELN  length 10  @EndUserText.label: 'Purchase Order Number';
+  field EBELP  type EBELP  length 5   @EndUserText.label: 'Item Number';
+  field MATNR  type MATNR  length 18  @EndUserText.label: 'Material Number';
+  field LIFNR  type LIFNR  length 10  @EndUserText.label: 'Vendor';
+  field MENGE  type MENGE  length 13  @EndUserText.label: 'Order Quantity';
+  field WEMNG  type WEMNG  length 13  @EndUserText.label: 'Goods Received Quantity';
+  field OPEN_QTY type MENGE_D length 13 @EndUserText.label: 'Open Quantity';
+  field AEDAT  type AEDAT  length 8   @EndUserText.label: 'Last Change Date';
+  field FLAG_CLOSE type CHAR1 length 1 @EndUserText.label: 'User Selection for Closure';
+  field MESSAGE type CHAR100 length 100 @EndUserText.label: 'System Message after closure';
+}
+```
+
+### 2) PURPOSE Section
+
+**PURPOSE:**
+
+The `ZSTR_PO_CLOSE` structure is designed to facilitate the processing of Purchase Order (PO) closures within the SAP system. It serves as a data container that holds essential information related to a purchase order, including the purchase order number, item number, material number, vendor details, order quantities, and the status of the closure process.
+
+This structure is particularly useful for applications or reports that require the aggregation and manipulation of PO data during the closure process. It allows users to track the quantities ordered and received, identify any open quantities that may still need attention, and capture the last change date for auditing purposes. Additionally, it provides a mechanism for user interaction through the `FLAG_CLOSE` field, which indicates whether the user has selected a particular PO for closure. The `MESSAGE` field is included to convey system messages or feedback to the user after the closure operation is performed.
+
+Overall, the `ZSTR_PO_CLOSE` structure enhances the efficiency and accuracy of PO closure processing by providing a well-defined and organized way to manage relevant data.

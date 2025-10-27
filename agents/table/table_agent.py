@@ -12,13 +12,13 @@ class TableAgent(BaseAgent):
         print("\n📊 [TableAgent] Received text:\n", section_text[:500], "\n--- END ---")
 
         prompt = f"""
-You are an expert SAP ABAP data modeler. Using the following requirement/context, produce:
-1) An ABAP transparent table definition (DDIC) with field names/types and comments.
-2) A 'PURPOSE' section explaining what this table is used for and key relationships.
+        You are an expert SAP ABAP data modeler. Using the following requirement/context, produce:
+        1) An ABAP transparent table definition (DDIC) DDL Code which we can directly paste in eclipse and generate table with field names/types and comments.
+        2) A 'PURPOSE' section explaining what this table is used for and key relationships.
 
-Context:
-{section_text}
-"""
+        Context:
+        {section_text}
+        """
         resp = self.llm([HumanMessage(content=prompt)])
         text = getattr(resp, "content", str(resp)).strip()
 

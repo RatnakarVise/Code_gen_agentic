@@ -12,13 +12,13 @@ class StructureAgent(BaseAgent):
         print("\n🧩 [StructureAgent] Received text:\n", section_text[:500], "\n--- END ---")
 
         prompt = f"""
-You are an expert SAP ABAP developer. Using the following requirement/context, produce:
-1) An ABAP DDIC structure definition with field names/types and short comments.
-2) A 'PURPOSE' section explaining the overall use of this structure.
+        You are an expert SAP ABAP developer. Using the following requirement/context, produce:
+        1) An ABAP DDIC structure DDL Code which we can directly paste in eclipse and generate structure with field names/types and short comments
+        2) A 'PURPOSE' section explaining the overall use of this structure.
 
-Context:
-{section_text}
-"""
+        Context:
+        {section_text}
+        """
         resp = self.llm([HumanMessage(content=prompt)])
         text = getattr(resp, "content", str(resp)).strip()
 
