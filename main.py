@@ -14,7 +14,8 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 
 # LangChain LLM
-from langchain_community.chat_models import ChatOpenAI
+from langchain_openai import ChatOpenAI
+# from langchain_community.chat_models import ChatOpenAI
 
 # Local modules
 from utils.file_utils import get_job_dir, zip_outputs
@@ -26,7 +27,7 @@ from agents.report.report_program_agent import ReportProgramAgent
 # ------------------------------ CONFIG ------------------------------
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-4o-mini")
+MODEL_NAME = os.getenv("MODEL_NAME", "gpt-5")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
 
 if not OPENAI_API_KEY:
