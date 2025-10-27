@@ -1,0 +1,399 @@
+REPORT zmm_close_open_po NO STANDARD PAGE HEADING LINE-SIZE 200.
+
+TYPE-POOLS: slis.
+
+CONSTANTS:
+  gc_status_success TYPE c VALUE 'S',
+  gc_status_fail    TYPE c VALUE 'F'.
+
+DATA gv_repid TYPE syrepid VALUE sy-repid.
+
+" Internal structure for ALV and processing (aligned to ZSTR_PO_CLOSE)
+TYPES: BEGIN OF ty_po_close,
+         ebeln     TYPE ekko-ebeln,
+         ebelp     TYPE ekpo-ebelp,
+         ekorg     TYPE ekko-ekorg,
+         werks     TYPE ekpo-werks,
+         lifnr     TYPE ekko-lifnr,
+         matnr     TYPE ekpo-matnr,
+         qty_order TYPE ekpo-menge,
+         qty_gr    TYPE ekpo-wemng,
+         qty_open  TYPE ekpo-menge,
+         aedat     TYPE ekko-aedat,
+         sel       TYPE abap_bool,
+         status    TYPE c LENGTH 1,
+         message   TYPE string,
+       END OF ty_po_close.
+
+DATA:
+  gt_out      TYPE STANDARD TABLE OF ty_po_close WITH DEFAULT KEY,
+  gs_out      TYPE ty_po_close,
+  gt_fieldcat TYPE slis_t_fieldcat_alv,
+  gs_fieldcat TYPE slis_fieldcat_alv,
+  gs_layout   TYPE slis_layout_alv,
+  gt_events   TYPE slis_t_event,
+  gs_event    TYPE slis_alv_event,
+  gt_excl     TYPE slis_t_extab.
+
+DATA gv_simulate TYPE abap_bool.
+
+" For BAPI
+DATA:
+  gt_poitem  TYPE STANDARD TABLE OF bapimepoitem WITH DEFAULT KEY,
+  gs_poitem  TYPE bapimepoitem,
+  gt_poitemx TYPE STANDARD TABLE OF bapimepoitemx WITH DEFAULT KEY,
+  gs_poitemx TYPE bapimepoitemx,
+  gt_return  TYPE STANDARD TABLE OF bapiret2 WITH DEFAULT KEY,
+  gs_return  TYPE bapiret2.
+
+" Log table work area
+DATA gs_log TYPE zpo_close_log.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+SELECT-OPTIONS:
+  s_ekorg FOR ekko-ekorg,
+  s_werks FOR ekpo-werks,
+  s_lifnr FOR ekko-lifnr,
+  s_ebeln FOR ekko-ebeln,
+  s_date  FOR ekko-aedat.
+PARAMETERS:
+  p_sim AS CHECKBOX DEFAULT 'X' USER-COMMAND ucom.
+SELECTION-SCREEN END OF BLOCK b1.
+
+INITIALIZATION.
+  text-001   = 'Selection Criteria'.
+  gv_simulate = abap_true.
+
+AT SELECTION-SCREEN.
+  IF p_sim = abap_true.
+    gv_simulate = abap_true.
+  ELSE.
+    gv_simulate = abap_false.
+  ENDIF.
+
+START-OF-SELECTION.
+  " 1) Read open PO item data based on selection
+  PERFORM get_data.
+  " 2) Display in ALV for user selection and processing
+  PERFORM display_alv.
+
+" Build ALV field catalog and layout
+FORM build_fieldcat.
+  CLEAR gt_fieldcat.
+
+  PERFORM add_fieldcat USING 'EBELN'     'PO Number'         '10' space space space.
+  PERFORM add_fieldcat USING 'EBELP'     'Item'              '05' space space space.
+  PERFORM add_fieldcat USING 'EKORG'     'Purch.Org'         '04' space space space.
+  PERFORM add_fieldcat USING 'WERKS'     'Plant'             '04' space space space.
+  PERFORM add_fieldcat USING 'LIFNR'     'Vendor'            '10' space space space.
+  PERFORM add_fieldcat USING 'MATNR'     'Material'          '18' space space space.
+  PERFORM add_fieldcat USING 'QTY_ORDER' 'Ordered Qty'       '13' space 'X'  space.
+  PERFORM add_fieldcat USING 'QTY_GR'    'Received Qty'      '13' space 'X'  space.
+  PERFORM add_fieldcat USING 'QTY_OPEN'  'Open Qty'          '13' space 'X'  space.
+  PERFORM add_fieldcat USING 'AEDAT'     'Last Change Date'  '10' space space space.
+  PERFORM add_fieldcat USING 'SEL'       'Select'            '05' 'X'  space 'X'.
+  PERFORM add_fieldcat USING 'STATUS'    'Status'            '06' space space space.
+  PERFORM add_fieldcat USING 'MESSAGE'   'Status Message'    '50' space space space.
+
+  CLEAR gs_layout.
+  gs_layout-zebra             = 'X'.
+  gs_layout-colwidth_optimize = 'X'.
+  gs_layout-edit              = 'X'.
+ENDFORM.
+
+" Helper to append one field to the ALV field catalog
+FORM add_fieldcat USING
+  p_fieldname TYPE slis_fieldname
+  p_coltext   TYPE slis_fieldname
+  p_outputlen TYPE slis_outputlen
+  p_checkbox  TYPE c
+  p_do_sum    TYPE c
+  p_edit      TYPE c.
+  CLEAR gs_fieldcat.
+  gs_fieldcat-fieldname  = p_fieldname.
+  gs_fieldcat-seltext_m  = p_coltext.
+  gs_fieldcat-outputlen  = p_outputlen.
+  gs_fieldcat-checkbox   = p_checkbox.
+  gs_fieldcat-do_sum     = p_do_sum.
+  gs_fieldcat-edit       = p_edit.
+
+  IF p_fieldname = 'QTY_ORDER' OR p_fieldname = 'QTY_GR' OR p_fieldname = 'QTY_OPEN'.
+    gs_fieldcat-just         = 'R'.
+    gs_fieldcat-decimals_out = 3.
+  ENDIF.
+
+  APPEND gs_fieldcat TO gt_fieldcat.
+ENDFORM.
+
+" Set custom PF-STATUS with action CLOSE (assumes GUI status exists)
+FORM set_pf_status USING rt_extab TYPE slis_t_extab.
+  SET PF-STATUS 'ZMM_CLOSE_PO' EXCLUDING rt_extab.
+ENDFORM.
+
+" Handle ALV user commands
+FORM alv_user_command USING r_ucomm     LIKE sy-ucomm
+                            rs_selfield TYPE slis_selfield.
+  CASE r_ucomm.
+    WHEN 'CLOSE'.
+      " Process selected PO items to set Delivery Completed indicator
+      PERFORM process_closure.
+      rs_selfield-refresh = 'X'.
+    WHEN 'BACK' OR 'EXIT' OR 'CANC'.
+      LEAVE TO SCREEN 0.
+  ENDCASE.
+ENDFORM.
+
+" Display ALV grid with events
+FORM display_alv.
+  DATA lv_repid TYPE syrepid VALUE sy-repid.
+
+  PERFORM build_fieldcat.
+
+  REFRESH gt_events.
+
+  CLEAR gs_event.
+  gs_event-name = 'PF_STATUS_SET'.
+  gs_event-form = 'SET_PF_STATUS'.
+  APPEND gs_event TO gt_events.
+
+  CLEAR gs_event.
+  gs_event-name = 'USER_COMMAND'.
+  gs_event-form = 'ALV_USER_COMMAND'.
+  APPEND gs_event TO gt_events.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY'
+    EXPORTING
+      i_callback_program = lv_repid
+      i_grid_title       = 'Open PO Items for Closure'
+      is_layout          = gs_layout
+      it_fieldcat        = gt_fieldcat
+      it_events          = gt_events
+      i_save             = 'A'
+    TABLES
+      t_outtab           = gt_out
+    EXCEPTIONS
+      program_error      = 1
+      OTHERS             = 2.
+  IF sy-subrc <> 0.
+    MESSAGE 'ALV display error' TYPE 'E'.
+  ENDIF.
+ENDFORM.
+
+" Read open PO items based on the selection and prepare ALV data
+FORM get_data.
+  CLEAR gt_out.
+
+  SELECT a~ebeln,
+         b~ebelp,
+         a~ekorg,
+         b~werks,
+         a~lifnr,
+         b~matnr,
+         b~menge AS qty_order,
+         b~wemng AS qty_gr,
+         a~aedat
+    FROM ekko AS a
+    INNER JOIN ekpo AS b
+      ON a~ebeln = b~ebeln
+    INTO TABLE @DATA(lt_raw)
+    WHERE a~ebeln IN @s_ebeln
+      AND a~ekorg IN @s_ekorg
+      AND a~lifnr IN @s_lifnr
+      AND a~aedat IN @s_date
+      AND b~werks IN @s_werks
+      AND b~loekz = @space
+      AND b~elikz = @space.
+
+  LOOP AT lt_raw ASSIGNING FIELD-SYMBOL(<ls_raw>).
+    DATA(ls_data) = VALUE ty_po_close(
+      ebeln     = <ls_raw>-ebeln
+      ebelp     = <ls_raw>-ebelp
+      ekorg     = <ls_raw>-ekorg
+      werks     = <ls_raw>-werks
+      lifnr     = <ls_raw>-lifnr
+      matnr     = <ls_raw>-matnr
+      qty_order = <ls_raw>-qty_order
+      qty_gr    = <ls_raw>-qty_gr
+      aedat     = <ls_raw>-aedat ).
+
+    " Compute open quantity and filter only items with open qty > 0
+    ls_data-qty_open = ls_data-qty_order - ls_data-qty_gr.
+    IF ls_data-qty_open > 0.
+      ls_data-sel = abap_false.
+      CLEAR: ls_data-status, ls_data-message.
+      APPEND ls_data TO gt_out.
+    ENDIF.
+  ENDLOOP.
+
+  SORT gt_out BY ebeln ebelp.
+ENDFORM.
+
+" Collect selected items and process closure per PO number
+FORM process_closure.
+  DATA: lt_sel       TYPE STANDARD TABLE OF ty_po_close WITH DEFAULT KEY,
+        ls_sel       TYPE ty_po_close,
+        lv_ebeln_cur TYPE ekko-ebeln,
+        lt_items_po  TYPE STANDARD TABLE OF ty_po_close WITH DEFAULT KEY.
+
+  " Build list of selected rows
+  LOOP AT gt_out INTO ls_sel WHERE sel = abap_true.
+    APPEND ls_sel TO lt_sel.
+  ENDLOOP.
+
+  IF lt_sel IS INITIAL.
+    MESSAGE 'No items selected for closure' TYPE 'S'.
+    RETURN.
+  ENDIF.
+
+  SORT lt_sel BY ebeln ebelp.
+  CLEAR lv_ebeln_cur.
+  REFRESH lt_items_po.
+
+  LOOP AT lt_sel INTO ls_sel.
+    AT NEW ebeln.
+      CLEAR lv_ebeln_cur.
+      REFRESH lt_items_po.
+      lv_ebeln_cur = ls_sel-ebeln.
+    ENDAT.
+
+    APPEND ls_sel TO lt_items_po.
+
+    AT END OF ebeln.
+      " Process one PO at a time via BAPI
+      PERFORM close_po_items USING lv_ebeln_cur lt_items_po.
+      REFRESH lt_items_po.
+    ENDAT.
+  ENDLOOP.
+ENDFORM.
+
+" Call BAPI to set Delivery Completed indicator and update ALV/log
+FORM close_po_items USING    p_ebeln  TYPE ekko-ebeln
+                             pt_items TYPE STANDARD TABLE OF ty_po_close.
+  DATA lv_simulation TYPE abap_bool VALUE gv_simulate.
+  DATA lv_has_error  TYPE abap_bool VALUE abap_false.
+  DATA lv_msg_agg    TYPE string.
+
+  CLEAR: gt_poitem, gt_poitemx, gt_return.
+
+  " Build BAPI item tables for the selected PO items
+  LOOP AT pt_items ASSIGNING FIELD-SYMBOL(<ls_item>).
+    CLEAR: gs_poitem, gs_poitemx.
+    gs_poitem-po_item    = <ls_item>-ebelp.
+    gs_poitem-no_more_gr = 'X'.
+    APPEND gs_poitem TO gt_poitem.
+
+    gs_poitemx-po_item    = <ls_item>-ebelp.
+    gs_poitemx-no_more_gr = 'X'.
+    gs_poitemx-updateflag = 'U'.
+    APPEND gs_poitemx TO gt_poitemx.
+  ENDLOOP.
+
+  IF lv_simulation = abap_true.
+    " Simulation mode: do not call BAPI, just inform user
+    lv_msg_agg = |Simulation: would set Delivery Completed for { lines( pt_items ) } item(s) in PO { p_ebeln }.|.
+  ELSE.
+    " Execute BAPI change
+    CALL FUNCTION 'BAPI_PO_CHANGE'
+      EXPORTING
+        purchaseorder = p_ebeln
+      TABLES
+        return        = gt_return
+        poitem        = gt_poitem
+        poitemx       = gt_poitemx.
+
+    " Evaluate BAPI return
+    LOOP AT gt_return INTO gs_return.
+      IF gs_return-type = 'E' OR gs_return-type = 'A'.
+        lv_has_error = abap_true.
+      ENDIF.
+      IF lv_msg_agg IS INITIAL.
+        lv_msg_agg = gs_return-message.
+      ELSE.
+        lv_msg_agg = lv_msg_agg && |; | && gs_return-message.
+      ENDIF.
+    ENDLOOP.
+
+    " Commit only if no errors
+    IF lv_has_error = abap_false.
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = 'X'.
+      IF sy-subrc <> 0.
+        lv_has_error = abap_true.
+        IF lv_msg_agg IS INITIAL.
+          lv_msg_agg = 'Commit failed'.
+        ELSE.
+          lv_msg_agg = lv_msg_agg && '; Commit failed'.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+
+  " Update ALV rows and persist logs (if not simulation)
+  LOOP AT gt_out ASSIGNING FIELD-SYMBOL(<ls_out>)
+       WHERE ebeln = p_ebeln AND sel = abap_true.
+    IF lv_simulation = abap_true.
+      <ls_out>-status  = gc_status_success.
+      <ls_out>-message = lv_msg_agg.
+    ELSE.
+      IF lv_has_error = abap_true.
+        <ls_out>-status  = gc_status_fail.
+        IF lv_msg_agg IS INITIAL.
+          <ls_out>-message = 'Closure failed'.
+        ELSE.
+          <ls_out>-message = lv_msg_agg.
+        ENDIF.
+      ELSE.
+        <ls_out>-status  = gc_status_success.
+        IF lv_msg_agg IS INITIAL.
+          <ls_out>-message = 'PO item closed successfully'.
+        ELSE.
+          <ls_out>-message = lv_msg_agg.
+        ENDIF.
+      ENDIF.
+
+      " Upsert log entry
+      CLEAR gs_log.
+      gs_log-mandt   = sy-mandt.
+      gs_log-ebeln   = <ls_out>-ebeln.
+      gs_log-ebelp   = <ls_out>-ebelp.
+      gs_log-ernam   = sy-uname.
+      gs_log-erdat   = sy-datum.
+      gs_log-erzet   = sy-uzeit.
+      gs_log-status  = <ls_out>-status.
+      gs_log-message = <ls_out>-message.
+      PERFORM upsert_close_log USING gs_log.
+    ENDIF.
+
+    " Deselect after processing
+    <ls_out>-sel = abap_false.
+  ENDLOOP.
+ENDFORM.
+
+" Insert or update custom log table ZPO_CLOSE_LOG for auditability
+FORM upsert_close_log USING ps_log TYPE zpo_close_log.
+  DATA ls_db TYPE zpo_close_log.
+
+  SELECT SINGLE mandt ebeln ebelp
+    FROM zpo_close_log
+    INTO CORRESPONDING FIELDS OF @ls_db
+    WHERE mandt = @ps_log-mandt
+      AND ebeln = @ps_log-ebeln
+      AND ebelp = @ps_log-ebelp.
+
+  IF sy-subrc = 0.
+    " Update existing entry
+    UPDATE zpo_close_log
+      SET ernam   = @ps_log-ernam,
+          erdat   = @ps_log-erdat,
+          erzet   = @ps_log-erzet,
+          status  = @ps_log-status,
+          message = @ps_log-message
+      WHERE mandt = @ps_log-mandt
+        AND ebeln = @ps_log-ebeln
+        AND ebelp = @ps_log-ebelp.
+  ELSE.
+    " Insert new entry
+    INSERT zpo_close_log FROM ps_log.
+  ENDIF.
+ENDFORM.

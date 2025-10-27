@@ -1,0 +1,449 @@
+REPORT zmm_close_open_po.
+
+*---------------------------------------------------------------------*
+* Global Declarations
+*---------------------------------------------------------------------*
+TYPE-POOLS: abap.
+
+TABLES: ekko, ekpo.
+
+CONSTANTS:
+  gc_func_close     TYPE salv_de_function VALUE 'CLOSE',
+  gc_status_success TYPE c VALUE 'S',
+  gc_status_error   TYPE c VALUE 'E'.
+
+DATA: gv_simulate TYPE abap_bool.
+
+TYPES:
+  BEGIN OF ty_join,
+    ebeln   TYPE ekko-ebeln,
+    ebelp   TYPE ekpo-ebelp,
+    lifnr   TYPE ekko-lifnr,
+    ekorg   TYPE ekko-ekorg,
+    bedat   TYPE ekko-bedat,
+    matnr   TYPE ekpo-matnr,
+    werks   TYPE ekpo-werks,
+    menge   TYPE ekpo-menge,
+    wemng   TYPE ekpo-wemng,
+    elikz   TYPE ekpo-elikz,
+    loekz_h TYPE ekko-loekz,
+    loekz_i TYPE ekpo-loekz,
+  END OF ty_join.
+
+DATA:
+  lt_alv TYPE STANDARD TABLE OF zstr_po_close WITH DEFAULT KEY,
+  ls_alv TYPE zstr_po_close.
+
+DATA:
+  lo_alv        TYPE REF TO cl_salv_table,
+  lo_selections TYPE REF TO cl_salv_selections,
+  lo_functions  TYPE REF TO cl_salv_functions_list,
+  lo_events     TYPE REF TO cl_salv_events_table.
+
+TYPES: tty_selrows TYPE salv_t_row.
+
+*---------------------------------------------------------------------*
+* Local event handler for SALV custom function
+*---------------------------------------------------------------------*
+CLASS lcl_alv_handler DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS:
+      on_added_function FOR EVENT added_function OF cl_salv_events_table
+        IMPORTING e_salv_function.
+ENDCLASS.
+
+CLASS lcl_alv_handler IMPLEMENTATION.
+  METHOD on_added_function.
+    PERFORM alv_on_user_command USING e_salv_function.
+  ENDMETHOD.
+ENDCLASS.
+
+*---------------------------------------------------------------------*
+* Selection Screen
+*---------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-t01.
+SELECT-OPTIONS:
+  s_ekorg FOR ekko-ekorg,
+  s_werks FOR ekpo-werks,
+  s_lifnr FOR ekko-lifnr,
+  s_ebeln FOR ekko-ebeln,
+  s_bedat FOR ekko-bedat.
+PARAMETERS:
+  p_simul AS CHECKBOX DEFAULT 'X' USER-COMMAND upd.
+SELECTION-SCREEN END OF BLOCK b1.
+
+INITIALIZATION.
+  text-t01 = 'Selection Criteria'.
+
+AT SELECTION-SCREEN.
+  gv_simulate = COND abap_bool( WHEN p_simul IS NOT INITIAL THEN abap_true ELSE abap_false ).
+
+*---------------------------------------------------------------------*
+* Fetch data: Read open PO items eligible for closure
+*---------------------------------------------------------------------*
+FORM fetch_data.
+  DATA: lt_join TYPE STANDARD TABLE OF ty_join,
+        ls_join TYPE ty_join.
+
+  CLEAR lt_alv.
+
+  SELECT a~ebeln,
+         b~ebelp,
+         a~lifnr,
+         a~ekorg,
+         a~bedat,
+         b~matnr,
+         b~werks,
+         b~menge,
+         b~wemng,
+         b~elikz,
+         a~loekz AS loekz_h,
+         b~loekz AS loekz_i
+    FROM ekko AS a
+    INNER JOIN ekpo AS b ON b~ebeln = a~ebeln
+    INTO TABLE @lt_join
+    WHERE a~ebeln IN @s_ebeln
+      AND a~ekorg IN @s_ekorg
+      AND a~lifnr IN @s_lifnr
+      AND b~werks IN @s_werks
+      AND a~bedat IN @s_bedat
+      AND a~loekz = @space
+      AND b~loekz = @space
+      AND b~elikz = @space.
+
+  LOOP AT lt_join INTO ls_join.
+    DATA(lv_open_qty) = ls_join-menge - ls_join-wemng.
+    IF lv_open_qty <= 0.
+      CONTINUE.
+    ENDIF.
+
+    CLEAR ls_alv.
+
+    ASSIGN COMPONENT 'EBELN' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_ebeln>).
+    IF sy-subrc = 0.
+      <lf_ebeln> = ls_join-ebeln.
+    ENDIF.
+
+    ASSIGN COMPONENT 'EBELP' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_ebelp>).
+    IF sy-subrc = 0.
+      <lf_ebelp> = ls_join-ebelp.
+    ENDIF.
+
+    ASSIGN COMPONENT 'LIFNR' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_lifnr>).
+    IF sy-subrc = 0.
+      <lf_lifnr> = ls_join-lifnr.
+    ENDIF.
+
+    ASSIGN COMPONENT 'MATNR' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_matnr>).
+    IF sy-subrc = 0.
+      <lf_matnr> = ls_join-matnr.
+    ENDIF.
+
+    ASSIGN COMPONENT 'WERKS' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_werks>).
+    IF sy-subrc = 0.
+      <lf_werks> = ls_join-werks.
+    ENDIF.
+
+    ASSIGN COMPONENT 'OPEN_QTY' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_open>).
+    IF sy-subrc = 0.
+      <lf_open> = lv_open_qty.
+    ENDIF.
+
+    ASSIGN COMPONENT 'CLOSURE_FLG' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_closeflg>).
+    IF sy-subrc = 0.
+      CLEAR <lf_closeflg>.
+    ENDIF.
+
+    ASSIGN COMPONENT 'STATUS_MSG' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_status>).
+    IF sy-subrc = 0.
+      CLEAR <lf_status>.
+    ENDIF.
+
+    APPEND ls_alv TO lt_alv.
+  ENDLOOP.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+* Display ALV: Build and show SALV list with custom Close function
+*---------------------------------------------------------------------*
+FORM display_alv.
+  TRY.
+      cl_salv_table=>factory(
+        IMPORTING
+          r_salv_table = lo_alv
+        CHANGING
+          t_table      = lt_alv ).
+
+      lo_alv->get_display_settings( )->set_striped_pattern( abap_true ).
+      lo_alv->get_display_settings( )->set_list_header( 'Open Purchase Order Items' ).
+      lo_alv->get_columns( )->set_optimize( abap_true ).
+
+      lo_selections = lo_alv->get_selections( ).
+      lo_selections->set_selection_mode( if_salv_c_selection_mode=>row_multiple ).
+
+      lo_functions = lo_alv->get_functions( ).
+      lo_functions->set_all( abap_true ).
+      lo_functions->add_function(
+        name     = gc_func_close
+        text     = 'Close Selected'
+        icon     = '@0V@'
+        tooltip  = 'Set delivery completed for selected items'
+        position = if_salv_c_function_position=>right_of_salv_functions ).
+
+      lo_events = lo_alv->get_event( ).
+      SET HANDLER lcl_alv_handler=>on_added_function FOR lo_events.
+
+      lo_alv->display( ).
+
+    CATCH cx_salv_msg INTO DATA(lx_salv).
+      MESSAGE lx_salv->get_text( ) TYPE 'E'.
+  ENDTRY.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+* ALV event: Handle custom function
+*---------------------------------------------------------------------*
+FORM alv_on_user_command USING iv_ucomm TYPE salv_de_function.
+  CASE iv_ucomm.
+    WHEN gc_func_close.
+      PERFORM process_closure.
+    WHEN OTHERS.
+      " No action
+  ENDCASE.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+* Process closure: Apply final delivery flag for selected rows
+*---------------------------------------------------------------------*
+FORM process_closure.
+  DATA: lt_rows    TYPE tty_selrows,
+        lv_changed TYPE abap_bool VALUE abap_false.
+
+  IF lo_selections IS NOT BOUND.
+    RETURN.
+  ENDIF.
+
+  lt_rows = lo_selections->get_selected_rows( ).
+  IF lt_rows IS INITIAL.
+    MESSAGE 'No rows selected.' TYPE 'S'.
+    RETURN.
+  ENDIF.
+
+  LOOP AT lt_rows ASSIGNING FIELD-SYMBOL(<ls_row>).
+    READ TABLE lt_alv INTO ls_alv INDEX <ls_row>.
+    IF sy-subrc <> 0.
+      CONTINUE.
+    ENDIF.
+
+    DATA(lv_ebeln) = VALUE ebeln( ).
+    DATA(lv_ebelp) = VALUE ebelp( ).
+    DATA(lv_open)  = 0.
+
+    ASSIGN COMPONENT 'EBELN' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_ebeln>).
+    IF sy-subrc = 0.
+      lv_ebeln = <lf_ebeln>.
+    ENDIF.
+
+    ASSIGN COMPONENT 'EBELP' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_ebelp>).
+    IF sy-subrc = 0.
+      lv_ebelp = <lf_ebelp>.
+    ENDIF.
+
+    ASSIGN COMPONENT 'OPEN_QTY' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_open>).
+    IF sy-subrc = 0.
+      lv_open = <lf_open>.
+    ENDIF.
+
+    DATA(lv_result_msg) = VALUE string( ).
+
+    PERFORM close_item USING lv_ebeln lv_ebelp lv_open CHANGING lv_result_msg.
+
+    ASSIGN COMPONENT 'STATUS_MSG' OF STRUCTURE ls_alv TO FIELD-SYMBOL(<lf_status>).
+    IF sy-subrc = 0.
+      <lf_status> = lv_result_msg.
+    ENDIF.
+
+    MODIFY lt_alv FROM ls_alv INDEX <ls_row>.
+    lv_changed = abap_true.
+  ENDLOOP.
+
+  IF lv_changed = abap_true AND lo_alv IS BOUND.
+    TRY.
+        lo_alv->refresh( ).
+      CATCH cx_salv_not_found cx_salv_data_error cx_salv_msg.
+        lo_alv->display( ).
+    ENDTRY.
+  ENDIF.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+* Close item: Call BAPI to set delivery completed flag
+*---------------------------------------------------------------------*
+FORM close_item
+  USING
+    iv_ebeln   TYPE ebeln
+    iv_ebelp   TYPE ebelp
+    iv_open    TYPE ekpo-menge
+  CHANGING
+    cv_message TYPE string.
+
+  DATA: lt_return TYPE TABLE OF bapiret2,
+        ls_return TYPE bapiret2,
+        lt_poitem TYPE TABLE OF bapimepoitem,
+        lt_poitemx TYPE TABLE OF bapimepoitemx,
+        ls_poitem TYPE bapimepoitem,
+        ls_poitemx TYPE bapimepoitemx,
+        lv_status TYPE c LENGTH 1 VALUE gc_status_success.
+
+  DATA(lv_simtext) = COND string( WHEN gv_simulate = abap_true THEN ' (Simulated)' ELSE '' ).
+
+  " Simulation mode: no changes, only log
+  IF gv_simulate = abap_true.
+    cv_message = |Would set Delivery Completed for { iv_ebeln }/{ iv_ebelp }{ lv_simtext }|.
+    PERFORM update_log USING iv_ebeln iv_ebelp iv_open gc_status_success cv_message gv_simulate.
+    RETURN.
+  ENDIF.
+
+  CLEAR: lt_return, lt_poitem, lt_poitemx, ls_poitem, ls_poitemx.
+
+  ls_poitem-po_item     = iv_ebelp.
+  ls_poitem-no_more_gr  = abap_true.
+
+  ls_poitemx-po_item    = iv_ebelp.
+  ls_poitemx-po_itemx   = abap_true.
+  ls_poitemx-no_more_gr = abap_true.
+
+  APPEND ls_poitem  TO lt_poitem.
+  APPEND ls_poitemx TO lt_poitemx.
+
+  CALL FUNCTION 'BAPI_PO_CHANGE'
+    EXPORTING
+      purchaseorder = iv_ebeln
+    TABLES
+      return        = lt_return
+      poitem        = lt_poitem
+      poitemx       = lt_poitemx.
+
+  DATA(lv_has_error) = abap_false.
+  DATA(lv_msg_text)  = VALUE string( ).
+
+  LOOP AT lt_return INTO ls_return.
+    IF ls_return-type = 'E' OR ls_return-type = 'A'.
+      lv_has_error = abap_true.
+    ENDIF.
+    IF lv_msg_text IS INITIAL.
+      lv_msg_text = |{ ls_return-id } { ls_return-number } { ls_return-message }|.
+    ELSE.
+      lv_msg_text = |{ lv_msg_text } / { ls_return-message }|.
+    ENDIF.
+  ENDLOOP.
+
+  IF lv_has_error = abap_true.
+    lv_status  = gc_status_error;
+    cv_message = |Failed to close { iv_ebeln }/{ iv_ebelp }: { lv_msg_text }|.
+    PERFORM update_log USING iv_ebeln iv_ebelp iv_open lv_status cv_message gv_simulate.
+    RETURN.
+  ENDIF.
+
+  CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+    EXPORTING
+      wait = abap_true.
+
+  lv_status  = gc_status_success.
+  cv_message = |Successfully set Delivery Completed for { iv_ebeln }/{ iv_ebelp }|.
+
+  PERFORM update_log USING iv_ebeln iv_ebelp iv_open lv_status cv_message gv_simulate.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+* Update log: Persist action and message to application log table
+*---------------------------------------------------------------------*
+FORM update_log
+  USING
+    iv_ebeln    TYPE ebeln
+    iv_ebelp    TYPE ebelp
+    iv_open     TYPE ekpo-menge
+    iv_status   TYPE c
+    iv_message  TYPE string
+    iv_simulate TYPE abap_bool.
+
+  DATA: ls_log TYPE zpo_close_log.
+
+  CLEAR ls_log.
+
+  ASSIGN COMPONENT 'EBELN' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_ebeln>).
+  IF sy-subrc = 0.
+    <lf_l_ebeln> = iv_ebeln.
+  ENDIF.
+
+  ASSIGN COMPONENT 'EBELP' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_ebelp>).
+  IF sy-subrc = 0.
+    <lf_l_ebelp> = iv_ebelp.
+  ENDIF.
+
+  ASSIGN COMPONENT 'OPEN_QTY' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_openqty>).
+  IF sy-subrc = 0.
+    <lf_l_openqty> = iv_open.
+  ENDIF.
+
+  ASSIGN COMPONENT 'STATUS' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_status>).
+  IF sy-subrc = 0.
+    <lf_l_status> = iv_status.
+  ENDIF.
+
+  ASSIGN COMPONENT 'MESSAGE' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_message>).
+  IF sy-subrc = 0.
+    <lf_l_message> = iv_message.
+  ENDIF.
+
+  ASSIGN COMPONENT 'SIMULATE' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_sim>).
+  IF sy-subrc = 0.
+    <lf_l_sim> = COND c( WHEN iv_simulate = abap_true THEN 'X' ELSE space ).
+  ENDIF.
+
+  ASSIGN COMPONENT 'ERNAM' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_ernam>).
+  IF sy-subrc = 0.
+    <lf_l_ernam> = sy-uname.
+  ENDIF.
+
+  ASSIGN COMPONENT 'ERDAT' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_erdat>).
+  IF sy-subrc = 0.
+    <lf_l_erdat> = sy-datum.
+  ENDIF.
+
+  ASSIGN COMPONENT 'ERZET' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_erzet>).
+  IF sy-subrc = 0.
+    <lf_l_erzet> = sy-uzeit.
+  ENDIF.
+
+  ASSIGN COMPONENT 'LOG_GUID' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_guid>).
+  IF sy-subrc = 0.
+    TRY.
+        DATA(lv_uuid) = cl_system_uuid=>create_uuid_c32_static( ).
+        <lf_l_guid> = lv_uuid.
+      CATCH cx_uuid_error.
+        " GUID creation failed - continue without GUID
+    ENDTRY.
+  ENDIF.
+
+  ASSIGN COMPONENT 'ACTION' OF STRUCTURE ls_log TO FIELD-SYMBOL(<lf_l_action>).
+  IF sy-subrc = 0.
+    <lf_l_action> = 'CLOSE'.
+  ENDIF.
+
+  INSERT zpo_close_log FROM ls_log.
+  IF sy-subrc <> 0.
+    " Log insert failed - do not interrupt processing
+  ENDIF.
+ENDFORM.
+
+*---------------------------------------------------------------------*
+* Entry point
+*---------------------------------------------------------------------*
+START-OF-SELECTION.
+  PERFORM fetch_data.
+  IF lt_alv IS INITIAL.
+    MESSAGE 'No open PO items found for given criteria.' TYPE 'S'.
+    LEAVE PROGRAM.
+  ENDIF.
+  PERFORM display_alv.

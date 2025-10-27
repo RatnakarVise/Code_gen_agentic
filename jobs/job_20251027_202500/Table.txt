@@ -1,0 +1,11 @@
+CREATE TABLE ZPO_CLOSE_LOG (
+  MANDT      MANDT      NOT NULL,  -- Client
+  EBELN      EBELN      NOT NULL,  -- Purchase Order Number
+  EBELP      EBELP      NOT NULL,  -- Item Number
+  ERNAM      ERNAM      NOT NULL,  -- User who executed closure
+  ERDAT      ERDAT      NOT NULL,  -- Date of closure
+  ERZET      ERZET      NOT NULL,  -- Time of closure
+  STATUS     CHAR(1)   NOT NULL,  -- Closure Status (S/F)
+  MESSAGE    CHAR(100)            -- Status Message
+  PRIMARY KEY (MANDT, EBELN, EBELP)
+) WITH NO LOG;

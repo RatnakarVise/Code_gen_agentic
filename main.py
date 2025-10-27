@@ -13,10 +13,6 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
-# LangChain LLM
-from langchain_openai import ChatOpenAI
-# from langchain_community.chat_models import ChatOpenAI
-
 # Local modules
 from utils.file_utils import get_job_dir, zip_outputs
 from utils.job_utils import split_sections
@@ -26,19 +22,19 @@ from agents.report.report_program_agent import ReportProgramAgent
 
 # ------------------------------ CONFIG ------------------------------
 load_dotenv()
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MODEL_NAME = os.getenv("MODEL_NAME", "gpt-5")
-LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))
+from utils.logger_config import setup_logger
+import logging
 
-if not OPENAI_API_KEY:
-    raise RuntimeError("OPENAI_API_KEY missing in .env")
+setup_logger()
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="SAP ABAP Code Generator (AI Agents)")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("ai_agents")
+
 
 # In-memory job store
 jobs = {}
+
 
 # ------------------------------ REQUEST MODEL ------------------------------
 class RequirementPayload(BaseModel):
@@ -53,13 +49,6 @@ def run_job(job_id: str, requirement_text: str):
     job_dir = get_job_dir()
     jobs[job_id]["status"] = "running"
     jobs[job_id]["started_at"] = datetime.utcnow().isoformat()
-
-    # Initialize LLM
-    llm = ChatOpenAI(
-        model_name=MODEL_NAME,
-        temperature=LLM_TEMPERATURE,
-        openai_api_key=OPENAI_API_KEY,
-    )
 
     try:
         # --- Split Sections ---
@@ -81,23 +70,41 @@ def run_job(job_id: str, requirement_text: str):
         logger.info(f"[{job_id}] Section 6 length: {len(report_text)}")
 
         # -------------------- Run Agents --------------------
-        structure_agent = StructureAgent(llm=llm, job_dir=job_dir)
-        table_agent = TableAgent(llm=llm, job_dir=job_dir)
-        report_agent = ReportProgramAgent(llm=llm, job_dir=job_dir)
+        structure_agent = StructureAgent(job_dir=job_dir)
+        table_agent = TableAgent(job_dir=job_dir)
+        report_agent = ReportProgramAgent(job_dir=job_dir)
 
+        # --- Structure Agent ---
         logger.info(f"[{job_id}] Running StructureAgent...")
-        path_structure = structure_agent.run(structure_text)
+        structure_output = structure_agent.run(structure_text)
+        path_structure = structure_output["path"]
+        structure_purpose = structure_output["purpose"]
         structure_result = path_structure.read_text(encoding="utf-8") if path_structure.exists() else ""
 
+        # --- Table Agent ---
         logger.info(f"[{job_id}] Running TableAgent...")
-        path_table = table_agent.run(table_text)
+        table_output = table_agent.run(table_text)
+        path_table = table_output["path"]
+        table_purpose = table_output["purpose"]
         table_result = path_table.read_text(encoding="utf-8") if path_table.exists() else ""
 
+        # Combine purposes dynamically
+        purposes = {
+            "structure": structure_purpose,
+            "table": table_purpose
+        }
+        logger.info(f"[{job_id}] Purposes received: {list(purposes.keys())}")
+
+        # --- Report Program Agent ---
         logger.info(f"[{job_id}] Running ReportProgramAgent...")
-        path_report = report_agent.run(report_text, metadata={
-            "structure_text": structure_result,
-            "table_text": table_result
-        })
+        path_report = report_agent.run(
+            report_text,
+            purposes=purposes,
+            metadata={
+                "structure_text": structure_result,
+                "table_text": table_result
+            }
+        )
 
         # -------------------- Zip Results --------------------
         zip_path = zip_outputs(job_dir, [path_structure, path_table, path_report], job_id)
@@ -115,7 +122,6 @@ def run_job(job_id: str, requirement_text: str):
             },
         })
 
-        # Log success
         logger.info(f"✅ Job {job_id} completed. File ready at: {zip_path}")
 
     except Exception as e:
@@ -153,15 +159,11 @@ def job_status(job_id: str):
         if not zip_path.exists():
             raise HTTPException(status_code=500, detail="ZIP file missing")
 
-        # Automatically return ZIP once job is done
         return FileResponse(
             path=str(zip_path),
             filename=zip_path.name,
             media_type="application/zip",
-            headers={
-                "X-Job-ID": job_id,
-                "X-Status": "finished",
-            }
+            headers={"X-Job-ID": job_id, "X-Status": "finished"},
         )
 
     return JSONResponse(job)

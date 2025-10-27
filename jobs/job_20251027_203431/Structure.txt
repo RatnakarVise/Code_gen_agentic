@@ -1,0 +1,14 @@
+@EndUserText.label: 'Data structure for PO closure processing'
+@AbapCatalog.enhancementCategory: #NOT_EXTENSIBLE
+define structure ZSTR_PO_CLOSE {
+  EBELN      : EBELN;      // Purchase Order Number
+  EBELP      : EBELP;      // Item Number
+  MATNR      : MATNR;      // Material Number
+  LIFNR      : LIFNR;      // Vendor
+  MENGE      : MENGE_D;    // Order Quantity
+  WEMNG      : WEMNG_D;    // Goods Received Quantity
+  OPEN_QTY   : MENGE_D;    // Open Quantity
+  AEDAT      : AEDAT;      // Last Change Date
+  FLAG_CLOSE : CHAR1;      // User Selection for Closure
+  MESSAGE    : CHAR100;    // System Message after closure
+}

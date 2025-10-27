@@ -1,0 +1,33 @@
+@EndUserText.label: 'Log table to store PO closure details'
+@AbapCatalog.enhancementCategory: #EXTENSIBLE_ANY
+@AbapCatalog.tableCategory: #TRANSPARENT
+@AbapCatalog.deliveryClass: #A
+@AbapCatalog.dataClass: #APPL0
+@AbapCatalog.sizeCategory: #0
+@AbapCatalog.buffering.type: #NOT_ALLOWED
+@AbapCatalog.dataMaintenance: #ALLOWED
+define table ZPO_CLOSE_LOG {
+  @EndUserText.label: 'Client'
+  key MANDT   : abap.clnt not null;
+
+  @EndUserText.label: 'Purchase Order Number'
+  key EBELN   : EBELN not null;
+
+  @EndUserText.label: 'Item Number'
+  key EBELP   : EBELP not null;
+
+  @EndUserText.label: 'User who executed closure'
+  ERNAM       : ERNAM;
+
+  @EndUserText.label: 'Date of closure'
+  ERDAT       : ERDAT;
+
+  @EndUserText.label: 'Time of closure'
+  ERZET       : ERZET;
+
+  @EndUserText.label: 'Closure Status (S/F)'
+  STATUS      : abap.char(1);
+
+  @EndUserText.label: 'Status Message'
+  MESSAGE     : abap.char(100);
+}
