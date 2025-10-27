@@ -1,0 +1,152 @@
+Certainly! Below is the full ABAP report code for the utility to close open purchase orders, followed by a 'USAGE' section explaining the reuse of structures and tables.
+
+### 1) Full ABAP Report Code
+
+```abap
+REPORT zmm_po_close.
+
+TABLES: ekpo, ekko, eket, lfa1, mara.
+
+TYPES: BEGIN OF ty_po_data,
+         ebeln       TYPE ekpo-ebeln,
+         ebelp       TYPE ekpo-ebelp,
+         matnr       TYPE ekpo-matnr,
+         txz01       TYPE ekpo-txz01,
+         lifnr       TYPE ekko-lifnr,
+         name1       TYPE lfa1-name1,
+         bedat       TYPE ekko-bedat,
+         bsart       TYPE ekko-bsart,
+         menge       TYPE ekpo-menge,
+         meins       TYPE ekpo-meins,
+         netpr       TYPE ekpo-netpr,
+         netwr       TYPE ekpo-netwr,
+         wemng       TYPE eket-wemng,
+         to_be_del   TYPE ekpo-menge,
+       END OF ty_po_data.
+
+DATA: gt_po_data TYPE TABLE OF ty_po_data,
+      gs_po_data TYPE ty_po_data.
+
+* Selection Screen
+PARAMETERS: p_werks TYPE ekpo-werks OBLIGATORY.
+
+SELECT-OPTIONS: s_matnr FOR ekpo-matnr,
+                s_lifnr FOR ekko-lifnr,
+                s_mtart FOR mara-mtart.
+
+* ALV Grid
+DATA: gr_alv_grid TYPE REF TO cl_gui_alv_grid,
+      gt_fieldcat TYPE lvc_t_fcat,
+      gs_layout   TYPE lvc_s_layo.
+
+* ALV Event Handling
+CLASS lcl_event_receiver DEFINITION.
+  PUBLIC SECTION.
+    METHODS: handle_user_command FOR EVENT user_command OF cl_gui_alv_grid
+             IMPORTING e_ucomm.
+ENDCLASS.
+
+CLASS lcl_event_receiver IMPLEMENTATION.
+  METHOD handle_user_command.
+    CASE e_ucomm.
+      WHEN 'CLOSE'.
+        PERFORM close_selected_pos.
+    ENDCASE.
+  ENDMETHOD.
+ENDCLASS.
+
+DATA: gr_event_receiver TYPE REF TO lcl_event_receiver.
+
+START-OF-SELECTION.
+  PERFORM fetch_open_pos.
+  PERFORM display_alv.
+
+FORM fetch_open_pos.
+  SELECT ekpo~ebeln ekpo~ebelp ekpo~matnr ekpo~txz01
+         ekko~lifnr lfa1~name1 ekko~bedat ekko~bsart
+         ekpo~menge ekpo~meins ekpo~netpr ekpo~netwr
+         eket~wemng
+    INTO TABLE gt_po_data
+    FROM ekpo
+    INNER JOIN ekko ON ekpo~ebeln = ekko~ebeln
+    INNER JOIN lfa1 ON ekko~lifnr = lfa1~lifnr
+    INNER JOIN eket ON ekpo~ebeln = eket~ebeln AND ekpo~ebelp = eket~ebelp
+    WHERE ekpo~elikz = ''
+      AND ekpo~werks = p_werks
+      AND ekpo~matnr IN s_matnr
+      AND ekko~lifnr IN s_lifnr
+      AND ekpo~matnr IN ( SELECT matnr FROM mara WHERE mtart IN s_mtart ).
+
+  LOOP AT gt_po_data INTO gs_po_data.
+    gs_po_data-to_be_del = gs_po_data-menge - gs_po_data-wemng.
+    MODIFY gt_po_data FROM gs_po_data.
+  ENDLOOP.
+ENDFORM.
+
+FORM display_alv.
+  CALL FUNCTION 'REUSE_ALV_FIELDCATALOG_MERGE'
+    EXPORTING
+      i_structure_name = 'ZMM_PO_CLOSE_STRUC'
+    CHANGING
+      ct_fieldcat      = gt_fieldcat.
+
+  gs_layout-zebra = 'X'.
+  gs_layout-box_fieldname = 'SEL'.
+
+  CALL SCREEN 100.
+ENDFORM.
+
+FORM close_selected_pos.
+  LOOP AT gt_po_data INTO gs_po_data WHERE sel = 'X'.
+    UPDATE ekpo SET elikz = 'X'
+      WHERE ebeln = gs_po_data-ebeln
+      AND ebelp = gs_po_data-ebelp.
+  ENDLOOP.
+  COMMIT WORK.
+  PERFORM fetch_open_pos.
+  PERFORM display_alv.
+ENDFORM.
+
+MODULE status_0100 OUTPUT.
+  SET PF-STATUS 'STANDARD'.
+  IF gr_alv_grid IS INITIAL.
+    CALL FUNCTION 'GET_GLOBALS_FROM_SLVC_FULLSCR'
+      IMPORTING
+        e_grid = gr_alv_grid.
+
+    CREATE OBJECT gr_event_receiver.
+    SET HANDLER gr_event_receiver->handle_user_command FOR gr_alv_grid.
+
+    CALL METHOD gr_alv_grid->set_table_for_first_display
+      EXPORTING
+        is_layout        = gs_layout
+      CHANGING
+        it_fieldcatalog  = gt_fieldcat
+        it_outtab        = gt_po_data.
+  ENDIF.
+ENDMODULE.
+
+MODULE user_command_0100 INPUT.
+  CASE sy-ucomm.
+    WHEN 'EXIT' OR 'BACK' OR 'CANCEL'.
+      LEAVE PROGRAM.
+  ENDCASE.
+ENDMODULE.
+```
+
+### 2) USAGE Section
+
+**USAGE:**
+
+- **Structure Reuse:**
+  - The structure `ZMM_PO_CLOSE_STRUC` is used to define the field catalog for the ALV grid display. This structure is designed to support the custom report `ZMM_PO_CLOSE` by providing a comprehensive view of open purchase orders with all necessary fields.
+
+- **Table Reuse:**
+  - The report reuses standard SAP tables such as `EKPO`, `EKKO`, `EKET`, `LFA1`, and `MARA` to fetch and display data related to open purchase orders. These tables are integral to the purchasing process in SAP and provide the necessary fields for the report.
+  - `EKPO` (Purchasing Document Item) is used to fetch item-level details such as material number, description, quantity, and net price.
+  - `EKKO` (Purchasing Document Header) is used to fetch header-level details such as vendor and document date.
+  - `EKET` (Scheduling Agreement Schedule Lines) is used to fetch delivery-related information.
+  - `LFA1` (Vendor Master) is used to fetch vendor names.
+  - `MARA` (General Material Data) is used to filter materials based on material type.
+
+This report leverages existing SAP structures and tables to efficiently manage and close open purchase orders, providing a user-friendly interface for the purchase team.

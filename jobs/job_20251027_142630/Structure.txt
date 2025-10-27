@@ -1,0 +1,24 @@
+### 1) ABAP DDIC Structure Definition
+
+```abap
+TYPES: BEGIN OF zstr_po_close,          " Structure for Purchase Order Closure Processing
+         ebeln TYPE ebeln,              " Purchase Order Number
+         ebelp TYPE ebelp,              " Item Number
+         matnr TYPE matnr,              " Material Number
+         lifnr TYPE lifnr,              " Vendor
+         menge TYPE menge_d,             " Order Quantity
+         wemng TYPE wemng_d,            " Goods Received Quantity
+         open_qty TYPE menge_d,          " Open Quantity
+         aedata TYPE aedat,              " Last Change Date
+         flag_close TYPE char1,          " User Selection for Closure
+         message TYPE char100.           " System Message after closure
+       END OF zstr_po_close.
+```
+
+### 2) PURPOSE Section
+
+The `ZSTR_PO_CLOSE` structure is designed to facilitate the processing of Purchase Order (PO) closures within the SAP system. It encapsulates all necessary fields that are relevant to the closure of a purchase order, including identifiers for the purchase order and its items, material details, vendor information, and quantities related to the order and goods received. 
+
+The structure includes a flag for user selection to indicate whether the closure process should be executed, as well as a message field to provide feedback or system messages after the closure operation is performed. The inclusion of the last change date allows for tracking of when the closure was last modified, ensuring that all relevant data is captured and can be audited if necessary.
+
+Overall, this structure serves as a central data container for the PO closure process, enabling efficient data handling and processing within ABAP programs that manage purchase order closures.

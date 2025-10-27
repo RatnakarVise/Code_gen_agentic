@@ -1,0 +1,35 @@
+```abap
+* ABAP DDIC Structure Definition for PO Closure Processing
+* Structure Name: ZSTR_PO_CLOSE
+* Description: Data structure for PO closure processing
+
+TYPES: BEGIN OF zstr_po_close,
+         ebeln       TYPE ebeln,        " Purchase Order Number
+         ebelp       TYPE ebelp,        " Item Number
+         matnr       TYPE matnr,        " Material Number
+         lifnr       TYPE lifnr,        " Vendor
+         menge       TYPE menge_d,      " Order Quantity
+         wemng       TYPE wemng_d,      " Goods Received Quantity
+         open_qty    TYPE menge_d,      " Open Quantity
+         aedat       TYPE aedat,        " Last Change Date
+         flag_close  TYPE char1,        " User Selection for Closure
+         message     TYPE char100,      " System Message after closure
+       END OF zstr_po_close.
+```
+
+**PURPOSE**
+
+The structure `ZSTR_PO_CLOSE` is designed to facilitate the processing and display of purchase order (PO) data in the context of closing open POs in the SAP MM module. This structure serves as a blueprint for internal tables and acts as an interface between the selection logic, processing logic, and ALV (ABAP List Viewer) output in the report program `ZMM_CLOSE_OPEN_PO`. Each field in the structure has a specific role:
+
+- **EBELN (Purchase Order Number):** Identifies the purchase order being processed.
+- **EBELP (Item Number):** Specifies the item number within the purchase order.
+- **MATNR (Material Number):** Represents the material associated with the PO item.
+- **LIFNR (Vendor):** Indicates the vendor from whom the goods/services are procured.
+- **MENGE (Order Quantity):** The total quantity ordered for the PO item.
+- **WEMNG (Goods Received Quantity):** The quantity of goods received against the PO item.
+- **OPEN_QTY (Open Quantity):** The remaining quantity yet to be delivered or invoiced.
+- **AEDAT (Last Change Date):** The date when the PO item was last modified.
+- **FLAG_CLOSE (User Selection for Closure):** A flag set by the user to mark the PO item for closure.
+- **MESSAGE (System Message after closure):** Displays the status message after attempting to close the PO item, indicating success or failure.
+
+Overall, this structure is crucial for managing the lifecycle of open POs, allowing users to systematically identify, process, and close POs that meet specific criteria, thereby streamlining procurement operations and maintaining data accuracy in the SAP system.

@@ -1,0 +1,55 @@
+Certainly! Below is the SAP DDIC table definition for the custom transparent table `ZPO_CLOSE_LOG`, followed by the 'PURPOSE' section explaining the table fields and their relationships.
+
+### 1) Transparent Table Definition
+
+```abap
+TABLES: ZPO_CLOSE_LOG.
+
+* Table: ZPO_CLOSE_LOG
+* Description: Log table to store PO closure details
+
+* Field Definitions
+FIELDS: MANDT TYPE MANDT,          " Client
+        EBELN TYPE EBELN,          " Purchase Order Number
+        EBELP TYPE EBELP,          " Item Number
+        ERNAM TYPE ERNAM,          " User who executed closure
+        ERDAT TYPE ERDAT,          " Date of closure
+        ERZET TYPE ERZET,          " Time of closure
+        STATUS TYPE CHAR1,         " Closure Status (S/F)
+        MESSAGE TYPE CHAR100.      " Status Message
+
+* Key Definitions
+KEYS: PRIMARY KEY (MANDT, EBELN, EBELP).
+
+* Technical Settings
+DATA CLASS: APPL0.
+SIZE CATEGORY: 0.
+DELIVERY CLASS: A.
+BUFFERING: NOT ALLOWED.
+```
+
+### 2) PURPOSE Section
+
+**PURPOSE:**
+
+The custom transparent table `ZPO_CLOSE_LOG` is designed to store audit log entries for the closure of Purchase Orders (POs) in the SAP MM module. This table serves as a traceability mechanism, allowing users to track which POs have been closed, by whom, and when. The table is crucial for maintaining a historical record of PO closure activities, ensuring accountability and transparency in the procurement process.
+
+**Field Descriptions and Relationships:**
+
+- **MANDT (Client):** This field represents the client in which the PO closure activity is recorded. It is a standard field in SAP tables to ensure client-specific data storage.
+
+- **EBELN (Purchase Order Number):** This field stores the unique identifier for the purchase order that has been closed. It references the purchase order number from the EKKO table, which is the purchasing document header table.
+
+- **EBELP (Item Number):** This field indicates the specific item within the purchase order that has been closed. It references the item number from the EKPO table, which is the purchasing document item table.
+
+- **ERNAM (User who executed closure):** This field records the username of the individual who executed the PO closure. It helps in identifying the responsible person for the closure action.
+
+- **ERDAT (Date of closure):** This field captures the date on which the PO closure was executed, providing a timestamp for the closure activity.
+
+- **ERZET (Time of closure):** This field records the exact time when the PO closure was performed, complementing the date field for precise logging.
+
+- **STATUS (Closure Status):** This field indicates the result of the closure operation, with possible values being 'S' for success and 'F' for failure. It helps in quickly identifying the outcome of the closure process.
+
+- **MESSAGE (Status Message):** This field stores any system messages or error descriptions related to the closure process. It provides additional context in case of failures or issues during the closure operation.
+
+The table `ZPO_CLOSE_LOG` is integral to the report program `ZMM_CLOSE_OPEN_PO`, which automates the closure of open POs. It ensures that all closure activities are logged systematically, facilitating easy retrieval and analysis of closure actions for audit and compliance purposes.

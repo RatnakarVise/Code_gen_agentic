@@ -1,0 +1,28 @@
+### 1) ABAP DDIC Structure Definition
+
+```abap
+TYPES: BEGIN OF zstr_po_close,          " Structure for Purchase Order Closure Processing
+         ebeln TYPE ebeln,              " Purchase Order Number
+         ebelp TYPE ebelp,              " Item Number
+         matnr TYPE matnr,              " Material Number
+         lifnr TYPE lifnr,              " Vendor
+         menge TYPE menge_d,             " Order Quantity
+         wemng TYPE wemng_d,            " Goods Received Quantity
+         open_qty TYPE menge_d,          " Open Quantity
+         aedata TYPE aedat,              " Last Change Date
+         flag_close TYPE char1,          " User Selection for Closure
+         message TYPE char100,           " System Message after closure
+       END OF zstr_po_close.
+```
+
+### 2) PURPOSE Section
+
+The `ZSTR_PO_CLOSE` structure is designed to facilitate the processing of Purchase Order (PO) closures within the SAP system. It encapsulates essential data elements required for managing the closure of purchase orders, including the purchase order number, item details, material information, vendor identification, and quantities related to the order and goods received. 
+
+This structure serves multiple purposes:
+- **Data Organization**: It organizes relevant fields into a single structure, making it easier to handle and pass around data related to PO closure processes.
+- **User Interaction**: The `flag_close` field allows users to indicate their selection for closure, enabling interactive processing based on user input.
+- **Feedback Mechanism**: The `message` field provides a way to communicate system messages back to the user after the closure process, ensuring that users are informed of the outcome of their actions.
+- **Audit and Tracking**: The `aedat` field captures the last change date, which is crucial for tracking modifications and maintaining data integrity.
+
+Overall, this structure is integral to the PO closure functionality, ensuring that all necessary data is captured and processed efficiently within the SAP environment.

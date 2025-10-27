@@ -1,0 +1,155 @@
+REPORT ZMM_CLOSE_OPEN_PO.
+
+TABLES: EKKO, EKPO, ZPO_CLOSE_LOG.
+
+TYPES: BEGIN OF ty_po_close,
+         ebeln TYPE EKKO-EBELN,
+         ebelp TYPE EKPO-EBELP,
+         lifnr TYPE EKKO-LIFNR,
+         matnr TYPE EKPO-MATNR,
+         open_qty TYPE EKPO-MENGE,
+         closure_flag TYPE CHAR1,
+         status_msg TYPE STRING,
+       END OF ty_po_close.
+
+DATA: lt_po_close TYPE TABLE OF ty_po_close,
+      ls_po_close TYPE ty_po_close,
+      lv_simulate TYPE CHAR1.
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-001.
+PARAMETERS: p_ekorg TYPE EKKO-EKORG OBLIGATORY,
+            p_werks TYPE EKKO-WERKS OBLIGATORY,
+            p_lifnr TYPE EKKO-LIFNR OBLIGATORY,
+            p_ebeln  TYPE EKKO-EBELN OBLIGATORY,
+            p_date_from TYPE DATS OBLIGATORY,
+            p_date_to TYPE DATS OBLIGATORY,
+            p_simulate TYPE CHAR1 AS CHECKBOX.
+SELECTION-SCREEN END OF BLOCK b1.
+
+START-OF-SELECTION.
+  " Fetch open purchase orders
+  PERFORM fetch_open_pos.
+  
+  " Display ALV grid
+  PERFORM display_alv.
+
+FORM fetch_open_pos.
+  " Select open purchase orders based on criteria
+  SELECT ebeln, ebelp, lifnr, matnr, menge
+    INTO TABLE lt_po_close
+    FROM ekpo
+    WHERE ebeln IN ( SELECT ebeln FROM ekko
+                     WHERE ekorg = p_ekorg
+                     AND werks = p_werks
+                     AND lifnr = p_lifnr
+                     AND ebeln BETWEEN p_ebeln AND p_ebeln
+                     AND bedat BETWEEN p_date_from AND p_date_to )
+    AND menge > 0.
+
+  " Initialize closure flag and status message
+  LOOP AT lt_po_close INTO ls_po_close.
+    ls_po_close-closure_flag = ' '.
+    ls_po_close-status_msg = ''.
+    MODIFY lt_po_close FROM ls_po_close.
+  ENDLOOP.
+ENDFORM.
+
+FORM display_alv.
+  DATA: lo_alv TYPE REF TO cl_gui_alv_grid,
+        lt_fieldcat TYPE lvc_t_fcat,
+        ls_fieldcat TYPE lvc_s_fcat.
+
+  " Define field catalog for ALV
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'EBELN'.
+  ls_fieldcat-seltext_m = 'PO Number'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'EBELP'.
+  ls_fieldcat-seltext_m = 'Item'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'LIFNR'.
+  ls_fieldcat-seltext_m = 'Vendor'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'MATNR'.
+  ls_fieldcat-seltext_m = 'Material'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'OPEN_QTY'.
+  ls_fieldcat-seltext_m = 'Open Qty'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'CLOSURE_FLAG'.
+  ls_fieldcat-seltext_m = 'Closure Flag'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  CLEAR ls_fieldcat.
+  ls_fieldcat-fieldname = 'STATUS_MSG'.
+  ls_fieldcat-seltext_m = 'Status Message'.
+  APPEND ls_fieldcat TO lt_fieldcat.
+
+  " Create ALV Grid
+  CREATE OBJECT lo_alv
+    EXPORTING
+      i_parent = cl_gui_container=>screen0.
+
+  " Set ALV data
+  CALL METHOD lo_alv->set_table_for_first_display
+    EXPORTING
+      i_structure_name = 'ZSTR_PO_CLOSE'
+      it_fieldcatalog = lt_fieldcat
+    CHANGING
+      it_outtab = lt_po_close.
+
+  " User selection for closure
+  CALL METHOD lo_alv->get_selected_rows
+    IMPORTING
+      et_index_rows = lt_selected_rows.
+
+  LOOP AT lt_selected_rows INTO DATA(lv_index).
+    READ TABLE lt_po_close INTO ls_po_close INDEX lv_index + 1.
+    IF p_simulate IS INITIAL.
+      PERFORM close_po USING ls_po_close.
+    ENDIF.
+  ENDLOOP.
+ENDFORM.
+
+FORM close_po USING ls_po_close TYPE ty_po_close.
+  DATA: lt_return TYPE TABLE OF bapiret2.
+
+  " Call BAPI to change purchase order
+  CALL FUNCTION 'BAPI_PO_CHANGE'
+    EXPORTING
+      purchaseorder = ls_po_close-ebeln
+      item_number   = ls_po_close-ebelp
+      delivery_complete = 'X'
+    TABLES
+      return = lt_return.
+
+  " Process return messages
+  LOOP AT lt_return INTO DATA(ls_return).
+    IF ls_return-type = 'E'.
+      ls_po_close-status_msg = ls_return-message.
+      ls_po_close-closure_flag = 'X'.
+    ELSE.
+      ls_po_close-status_msg = 'Closed Successfully'.
+    ENDIF.
+  ENDLOOP.
+
+  " Log the closure in custom table
+  INSERT VALUE #( ls_po_close-ebeln, ls_po_close-ebelp, sy-datum, sy-uzeit, ls_po_close-status_msg )
+    INTO zpo_close_log.
+
+  MODIFY lt_po_close FROM ls_po_close.
+ENDFORM.
+
+END-OF-SELECTION.
+  " Display ALV grid after processing
+  PERFORM display_alv.
