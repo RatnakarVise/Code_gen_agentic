@@ -13,3 +13,4 @@ numpy
 pydantic
 tenacity
 langsmith
+langchain_text_splitters

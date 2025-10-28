@@ -1,0 +1,460 @@
+REPORT zmm_close_open_po.
+
+"============== INCLUDE: zmm_close_po_top ===========================
+" Global declarations and types
+
+TYPE-POOLS: salv.
+
+" Global types
+TYPES: BEGIN OF ty_po_raw,
+         ebeln TYPE ekko-ebeln,
+         ebelp TYPE ekpo-ebelp,
+         bsart TYPE ekko-bsart,
+         lifnr TYPE ekko-lifnr,
+         matnr TYPE ekpo-matnr,
+         menge TYPE ekpo-menge,
+         wemng TYPE ekpo-wemng,
+         aedat TYPE ekpo-aedat,
+         elikz TYPE ekpo-elikz,
+         loekz TYPE ekpo-loekz,
+       END OF ty_po_raw.
+
+TYPES: BEGIN OF ty_hdr_auth,
+         ebeln TYPE ekko-ebeln,
+         bsart TYPE ekko-bsart,
+       END OF ty_hdr_auth.
+
+" Global data
+DATA: gt_alv      TYPE STANDARD TABLE OF zstr_po_close WITH DEFAULT KEY,
+      gs_alv      TYPE zstr_po_close,
+      gt_raw      TYPE STANDARD TABLE OF ty_po_raw WITH DEFAULT KEY,
+      gt_hdr_auth TYPE HASHED TABLE OF ty_hdr_auth WITH UNIQUE KEY ebeln,
+      gt_sel_rows TYPE salv_t_row.
+
+" SALV references
+DATA: go_alv       TYPE REF TO cl_salv_table,
+      go_columns   TYPE REF TO cl_salv_columns_table,
+      go_functions TYPE REF TO cl_salv_functions_list,
+      go_sels      TYPE REF TO cl_salv_selections.
+
+" Log buffer for batch DB update
+DATA: gt_log TYPE STANDARD TABLE OF zpo_close_log WITH DEFAULT KEY,
+      gs_log TYPE zpo_close_log.
+
+" Constants
+CONSTANTS: gc_actvt_change TYPE char2 VALUE '02'.  " Change permission
+
+" Helper variables
+DATA: gv_msg TYPE string.
+
+"============== INCLUDE: zmm_close_po_sel ===========================
+" Selection screen
+
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-t01.
+SELECT-OPTIONS: s_ebeln FOR ekko-ebeln,
+                s_ekorg FOR ekko-ekorg,
+                s_werks FOR ekpo-werks,
+                s_lifnr FOR ekko-lifnr,
+                s_aedat FOR ekpo-aedat.
+PARAMETERS: p_simul AS CHECKBOX DEFAULT 'X'.
+SELECTION-SCREEN END OF BLOCK b1.
+
+INITIALIZATION.
+  text-t01 = 'PO Selection and Options'.
+
+AT SELECTION-SCREEN.
+  " Placeholder for future validations
+
+"============== INCLUDE: zmm_close_po_alv ===========================
+" ALV display and column setup
+
+FORM display_alv.
+  " Display ALV and capture user selections afterwards
+  TRY.
+      cl_salv_table=>factory(
+        IMPORTING
+          r_salv_table = go_alv
+        CHANGING
+          t_table      = gt_alv ).
+
+      " Enable standard functions
+      go_functions = go_alv->get_functions( ).
+      go_functions->set_all( abap_true ).
+
+      " Allow multiple row selection
+      go_sels = go_alv->get_selections( ).
+      go_sels->set_selection_mode( if_salv_c_selection_mode=>multiple ).
+
+      " Optimize column widths and set headers
+      go_columns = go_alv->get_columns( ).
+      go_columns->set_optimize( abap_true ).
+      PERFORM set_column_headers.
+
+      " Show ALV
+      go_alv->display( ).
+
+      " Fetch selected row indexes after user leaves ALV
+      CLEAR gt_sel_rows.
+      IF go_sels IS BOUND.
+        go_sels->get_selected_rows(
+          IMPORTING
+            et_index_rows = gt_sel_rows ).
+      ENDIF.
+
+    CATCH cx_salv_msg INTO DATA(lx_msg).
+      MESSAGE e001(00) WITH lx_msg->get_text( ).
+  ENDTRY.
+ENDFORM.
+
+FORM set_column_headers.
+  " Set column texts for readability in ALV
+  DATA: lo_col TYPE REF TO cl_salv_column.
+
+  TRY.
+      lo_col = go_columns->get_column( 'EBELN' ).
+      lo_col->set_short_text( 'PO Number' ).
+      lo_col->set_medium_text( 'PO Number' ).
+      lo_col->set_long_text( 'Purchase Order Number' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'EBELP' ).
+      lo_col->set_short_text( 'Item' ).
+      lo_col->set_medium_text( 'Item' ).
+      lo_col->set_long_text( 'PO Item' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'LIFNR' ).
+      lo_col->set_short_text( 'Vendor' ).
+      lo_col->set_medium_text( 'Vendor' ).
+      lo_col->set_long_text( 'Vendor' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'MATNR' ).
+      lo_col->set_short_text( 'Material' ).
+      lo_col->set_medium_text( 'Material' ).
+      lo_col->set_long_text( 'Material' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'MENGE' ).
+      lo_col->set_short_text( 'Qty' ).
+      lo_col->set_medium_text( 'Order Qty' ).
+      lo_col->set_long_text( 'Order Quantity' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'WEMNG' ).
+      lo_col->set_short_text( 'GR Qty' ).
+      lo_col->set_medium_text( 'GR Quantity' ).
+      lo_col->set_long_text( 'Goods Received Quantity' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'OPEN_QTY' ).
+      lo_col->set_short_text( 'Open' ).
+      lo_col->set_medium_text( 'Open Qty' ).
+      lo_col->set_long_text( 'Open Quantity' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'AEDAT' ).
+      lo_col->set_short_text( 'ChgDate' ).
+      lo_col->set_medium_text( 'Last Chg Date' ).
+      lo_col->set_long_text( 'Last Change Date' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'FLAG_CLOSE' ).
+      lo_col->set_short_text( 'Close?' ).
+      lo_col->set_medium_text( 'Closure Flag' ).
+      lo_col->set_long_text( 'Closure Flag (Set by Program)' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+
+  TRY.
+      lo_col = go_columns->get_column( 'MESSAGE' ).
+      lo_col->set_short_text( 'Status' ).
+      lo_col->set_medium_text( 'Status Message' ).
+      lo_col->set_long_text( 'System Message After Closure' ).
+    CATCH cx_salv_not_found.
+  ENDTRY.
+ENDFORM.
+
+"============== INCLUDE: zmm_close_po_f01 ===========================
+" Business logic forms
+
+FORM fetch_open_pos.
+  " Fetch open PO items and build ALV dataset
+
+  " Clear previous data buffers
+  CLEAR: gt_alv, gt_raw, gt_hdr_auth, gt_sel_rows, gt_log.
+
+  " Read EKKO/EKPO for open items (not deleted, not delivery completed)
+  SELECT
+    ekko~ebeln,
+    ekpo~ebelp,
+    ekko~bsart,
+    ekko~lifnr,
+    ekpo~matnr,
+    ekpo~menge,
+    ekpo~wemng,
+    ekpo~aedat,
+    ekpo~elikz,
+    ekpo~loekz
+    FROM ekko
+    INNER JOIN ekpo ON ekpo~ebeln = ekko~ebeln
+    INTO TABLE @gt_raw
+    WHERE ekko~ebeln IN @s_ebeln
+      AND ekko~ekorg IN @s_ekorg
+      AND ekko~lifnr IN @s_lifnr
+      AND ekpo~werks IN @s_werks
+      AND ekpo~aedat IN @s_aedat
+      AND ekpo~elikz = @space
+      AND ekpo~loekz = @space
+    ORDER BY ekko~ebeln, ekpo~ebelp.
+
+  IF sy-subrc <> 0 OR gt_raw IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  " Build ALV entries and authorization header map
+  LOOP AT gt_raw INTO DATA(ls_raw).
+    DATA(lv_open_qty) = ls_raw-menge - ls_raw-wemng.
+    IF lv_open_qty <= 0.
+      CONTINUE.
+    ENDIF.
+
+    CLEAR gs_alv.
+    gs_alv-ebeln      = ls_raw-ebeln.
+    gs_alv-ebelp      = ls_raw-ebelp.
+    gs_alv-lifnr      = ls_raw-lifnr.
+    gs_alv-matnr      = ls_raw-matnr.
+    gs_alv-menge      = ls_raw-menge.
+    gs_alv-wemng      = ls_raw-wemng.
+    gs_alv-open_qty   = lv_open_qty.
+    gs_alv-aedat      = ls_raw-aedat.
+    gs_alv-flag_close = space.
+    gs_alv-message    = ''.
+    APPEND gs_alv TO gt_alv.
+
+    " Fill header map once per PO for authorization check
+    READ TABLE gt_hdr_auth WITH TABLE KEY ebeln = ls_raw-ebeln TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0.
+      INSERT VALUE ty_hdr_auth( ebeln = ls_raw-ebeln bsart = ls_raw-bsart ) INTO TABLE gt_hdr_auth.
+    ENDIF.
+  ENDLOOP.
+ENDFORM.
+
+FORM process_closure.
+  " Process selected items: authorization, BAPI call, logging
+
+  DATA: lt_selected TYPE STANDARD TABLE OF zstr_po_close WITH DEFAULT KEY.
+
+  " Resolve selected rows into items to process and mark FLAG_CLOSE
+  LOOP AT gt_sel_rows INTO DATA(lv_index).
+    READ TABLE gt_alv INDEX lv_index INTO DATA(ls_alv_row).
+    IF sy-subrc = 0.
+      ls_alv_row-flag_close = 'X'.
+      MODIFY gt_alv FROM ls_alv_row INDEX lv_index.
+      APPEND ls_alv_row TO lt_selected.
+    ENDIF.
+  ENDLOOP.
+
+  IF lt_selected IS INITIAL.
+    MESSAGE s001(00) WITH 'No valid rows selected.'.
+    RETURN.
+  ENDIF.
+
+  " Group by PO and process each PO in batch for efficiency
+  SORT lt_selected BY ebeln ebelp.
+
+  LOOP AT lt_selected ASSIGNING FIELD-SYMBOL(<ls_sel>)
+       GROUP BY ( ebeln = <ls_sel>-ebeln ) ASCENDING
+       ASSIGNING FIELD-SYMBOL(<lg_group>).
+
+    DATA(lv_ebeln) = <lg_group>-ebeln.
+
+    " Authorization check for PO type (BSART)
+    DATA(lv_authorized) = abap_false.
+    DATA(ls_hdr) = VALUE ty_hdr_auth( ).
+    READ TABLE gt_hdr_auth WITH TABLE KEY ebeln = lv_ebeln INTO ls_hdr.
+    IF sy-subrc = 0.
+      PERFORM check_authority_for_bsart USING ls_hdr-bsart CHANGING lv_authorized.
+    ENDIF.
+
+    IF lv_authorized = abap_false.
+      gv_msg = |Not authorized to change PO type { ls_hdr-bsart }|.
+      LOOP AT GROUP <lg_group> ASSIGNING FIELD-SYMBOL(<ls_fail_auth>).
+        PERFORM set_status_message USING <ls_fail_auth>-ebeln <ls_fail_auth>-ebelp 'F' gv_msg.
+      ENDLOOP.
+      CONTINUE.
+    ENDIF.
+
+    " Simulate mode: do not call BAPI, just mark info
+    IF p_simul = abap_true.
+      gv_msg = |Simulate mode: would set Delivery Completed (No update performed)|.
+      LOOP AT GROUP <lg_group> ASSIGNING FIELD-SYMBOL(<ls_sim>).
+        PERFORM set_status_message USING <ls_sim>-ebeln <ls_sim>-ebelp 'S' gv_msg.
+      ENDLOOP.
+      CONTINUE.
+    ENDIF.
+
+    " Prepare BAPI tables for items in this PO
+    DATA(lt_item)  = VALUE bapimepoitem_tab( ).
+    DATA(lt_itemx) = VALUE bapimepoitemx_tab( ).
+
+    LOOP AT GROUP <lg_group> ASSIGNING FIELD-SYMBOL(<ls_item>).
+      APPEND VALUE bapimepoitem(
+               po_item    = <ls_item>-ebelp
+               no_more_gr = 'X' ) TO lt_item.
+      APPEND VALUE bapimepoitemx(
+               po_item    = <ls_item>-ebelp
+               no_more_gr = 'X'
+               updateflag = 'U' ) TO lt_itemx.
+    ENDLOOP.
+
+    " Call BAPI to set Delivery Completed indicator
+    DATA(lt_return) = VALUE bapiret2_t( ).
+
+    CALL FUNCTION 'BAPI_PO_CHANGE'
+      EXPORTING
+        purchaseorder = lv_ebeln
+      TABLES
+        return        = lt_return
+        poitem        = lt_item
+        poitemx       = lt_itemx.
+
+    " Analyze return messages for errors
+    DATA(lv_has_error) = abap_false.
+    READ TABLE lt_return WITH KEY type = 'A' TRANSPORTING NO FIELDS.
+    IF sy-subrc = 0.
+      lv_has_error = abap_true.
+    ELSE.
+      READ TABLE lt_return WITH KEY type = 'E' TRANSPORTING NO FIELDS.
+      IF sy-subrc = 0.
+        lv_has_error = abap_true.
+      ENDIF.
+    ENDIF.
+
+    IF lv_has_error = abap_true.
+      CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+
+      " Build error text (take first A/E message)
+      READ TABLE lt_return INTO DATA(ls_ret_err) WITH KEY type = 'A'.
+      IF sy-subrc <> 0.
+        READ TABLE lt_return INTO ls_ret_err WITH KEY type = 'E'.
+      ENDIF.
+      IF sy-subrc = 0.
+        gv_msg = ls_ret_err-message.
+      ELSE.
+        gv_msg = 'BAPI_PO_CHANGE returned error.'.
+      ENDIF.
+
+      LOOP AT GROUP <lg_group> ASSIGNING FIELD-SYMBOL(<ls_fail>).
+        PERFORM set_status_message USING <ls_fail>-ebeln <ls_fail>-ebelp 'F' gv_msg.
+      ENDLOOP.
+
+    ELSE.
+      " Commit successful changes
+      CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+        EXPORTING
+          wait = 'X'.
+
+      gv_msg = 'Closed (Delivery Completed set)'.
+      LOOP AT GROUP <lg_group> ASSIGNING FIELD-SYMBOL(<ls_succ>).
+        PERFORM set_status_message USING <ls_succ>-ebeln <ls_succ>-ebelp 'S' gv_msg.
+      ENDLOOP.
+    ENDIF.
+
+  ENDLOOP.
+
+  " Persist logs in batch if not simulate
+  IF p_simul = abap_false AND gt_log IS NOT INITIAL.
+    MODIFY zpo_close_log FROM TABLE gt_log.
+    COMMIT WORK AND WAIT.
+  ENDIF.
+ENDFORM.
+
+FORM set_status_message USING    iv_ebeln   TYPE ebeln
+                                 iv_ebelp   TYPE ebelp
+                                 iv_status  TYPE c
+                                 iv_message TYPE string.
+  " Update ALV message and prepare log entry
+
+  " Update ALV dataset
+  READ TABLE gt_alv ASSIGNING FIELD-SYMBOL(<ls_upd>)
+       WITH KEY ebeln = iv_ebeln ebelp = iv_ebelp.
+  IF sy-subrc = 0.
+    <ls_upd>-message = iv_message.
+    IF iv_status = 'S'.
+      <ls_upd>-flag_close = 'X'.
+    ENDIF.
+  ENDIF.
+
+  " Prepare log entry
+  CLEAR gs_log.
+  gs_log-mandt   = sy-mandt.
+  gs_log-ebeln   = iv_ebeln.
+  gs_log-ebelp   = iv_ebelp.
+  gs_log-ernam   = sy-uname.
+  gs_log-erdat   = sy-datum.
+  gs_log-erzet   = sy-uzeit.
+  gs_log-status  = iv_status.
+  gs_log-message = iv_message.
+  APPEND gs_log TO gt_log.
+ENDFORM.
+
+FORM check_authority_for_bsart USING    iv_bsart       TYPE ekko-bsart
+                               CHANGING cv_authorized  TYPE abap_bool.
+  " Check authority for PO document type (BSART) to change items
+  cv_authorized = abap_false.
+  IF iv_bsart IS INITIAL.
+    RETURN.
+  ENDIF.
+
+  AUTHORITY-CHECK OBJECT 'M_BEST_BSA'
+           ID 'BSART' FIELD iv_bsart
+           ID 'ACTVT' FIELD gc_actvt_change.
+  IF sy-subrc = 0.
+    cv_authorized = abap_true.
+  ENDIF.
+ENDFORM.
+
+"============== MAIN PROGRAM LOGIC =================================
+START-OF-SELECTION.
+  " Fetch open PO items based on selection
+  PERFORM fetch_open_pos.
+
+  IF gt_alv IS INITIAL.
+    MESSAGE s001(00) WITH 'No open PO items found for given selection.'.
+    LEAVE PROGRAM.
+  ENDIF.
+
+  " Inform user about selection process in ALV
+  MESSAGE s001(00) WITH 'Select rows to close in ALV, then press Back to start processing.'.
+
+  " Display ALV for user selection
+  PERFORM display_alv.
+
+  " Validate user selections and process closure
+  IF gt_sel_rows IS INITIAL.
+    MESSAGE s001(00) WITH 'No rows selected for closure.'.
+    LEAVE PROGRAM.
+  ENDIF.
+
+  " Process closure (simulation or update)
+  PERFORM process_closure.
+
+  " Show results in ALV with updated messages/status
+  PERFORM display_alv.
