@@ -1,0 +1,520 @@
+REPORT zmm_close_open_po.
+
+*========================================================================
+* Report: ZMM_CLOSE_OPEN_PO
+* Description: Utility to identify and close open PO items via ALV
+* Author: Refined
+*========================================================================
+* Sections:
+*  - Global Declarations (TOP)
+*  - Selection Screen (SEL)
+*  - Start-of-Selection (MAIN)
+*  - Form Routines (F01)
+*  - ALV Logic (ALV)
+*========================================================================
+* Notes:
+*  - Uses EKKO/EKPO to fetch open PO items
+*  - Displays ALV with editable checkbox (FLAG_CLOSE) to select items
+*  - Executes closure via BAPI_PO_CHANGE (Delivery Completed indicator)
+*  - Logs results in ZPO_CLOSE_LOG
+*  - Authorization checked against M_BEST_BSA (PO Document Type)
+*  - Simulate Mode supported (no updates, only messages)
+*========================================================================
+
+*-------------------------------*
+* Global Declarations           *
+*-------------------------------*
+TYPE-POOLS: slis, abap.
+TABLES: ekko, ekpo.
+
+CONSTANTS:
+  gc_status_success TYPE c VALUE 'S',
+  gc_status_fail    TYPE c VALUE 'F',
+  gc_x              TYPE c VALUE 'X',
+  gc_space          TYPE c VALUE ' '.
+
+DATA: g_repid TYPE syrepid VALUE sy-repid.
+
+* Hash map for PO -> BSART (for auth check)
+TYPES: BEGIN OF ty_bsart_map,
+         ebeln TYPE ebeln,
+         bsart TYPE bsart,
+       END OF ty_bsart_map.
+TYPES: ty_t_bsart_map TYPE HASHED TABLE OF ty_bsart_map WITH UNIQUE KEY ebeln.
+DATA: gt_bsart_map TYPE ty_t_bsart_map.
+
+* ALV data (structure ZSTR_PO_CLOSE is expected in DDIC)
+TYPES: ty_po_close TYPE zstr_po_close.
+DATA: gt_alv TYPE STANDARD TABLE OF ty_po_close WITH DEFAULT KEY,
+      gs_alv TYPE ty_po_close.
+
+* LVC ALV globals
+DATA: gt_fcat    TYPE lvc_t_fcat,
+      gs_fcat    TYPE lvc_s_fcat,
+      gs_layout  TYPE lvc_s_layo,
+      gs_variant TYPE disvariant,
+      g_save     TYPE c VALUE 'A'.
+
+DATA: g_grid TYPE REF TO cl_gui_alv_grid.
+
+* Work variables
+DATA: gv_simulate       TYPE abap_bool,
+      gv_count_selected TYPE i,
+      gv_count_success  TYPE i,
+      gv_count_failed   TYPE i.
+
+*-------------------------------*
+* Selection Screen              *
+*-------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-t01.
+SELECT-OPTIONS:
+  s_ebeln FOR ekko-ebeln,
+  s_aedat FOR ekko-aedat,
+  s_ekorg FOR ekko-ekorg,
+  s_werks FOR ekpo-werks,
+  s_lifnr FOR ekko-lifnr.
+PARAMETERS:
+  p_sim AS CHECKBOX DEFAULT 'X' USER-COMMAND ucom,  "Simulate mode
+  p_max TYPE i DEFAULT 1000.                        "Safety limit
+SELECTION-SCREEN END OF BLOCK b1.
+
+*-------------------------------*
+* Start-of-Selection            *
+*-------------------------------*
+START-OF-SELECTION.
+  "Determine simulate mode flag
+  gv_simulate = COND abap_bool( WHEN p_sim = gc_x THEN abap_true ELSE abap_false ).
+
+  "Fetch data and show ALV
+  PERFORM frm_get_data.
+  IF gt_alv IS INITIAL.
+    MESSAGE 'No open PO items found for selection' TYPE 'I'.
+    RETURN.
+  ENDIF.
+
+  PERFORM frm_build_fieldcat.
+  PERFORM frm_display_alv.
+
+*-------------------------------*
+* Form Routines                 *
+*-------------------------------*
+
+FORM frm_get_data.
+  "Fetch open PO items according to selection and prepare ALV data
+  DATA: lv_rows     TYPE i,
+        lv_from_idx TYPE sy-tabix,
+        lv_open     TYPE ekpo-menge.
+
+  CLEAR: gt_alv, gt_bsart_map.
+
+  "Join EKKO/EKPO and filter out deleted/completed items; pre-filter open qty at DB where possible
+  SELECT
+         a~ebeln
+         a~bsart
+         a~aedat
+         a~ekorg
+         a~lifnr
+         b~ebelp
+         b~matnr
+         b~menge
+         b~wemng
+         b~loekz
+         b~elikz
+         b~werks
+    FROM ekko AS a
+    INNER JOIN ekpo AS b
+      ON a~ebeln = b~ebeln
+    INTO TABLE @DATA(lt_ekko_ekpo)
+    WHERE a~ebeln IN @s_ebeln
+      AND a~aedat IN @s_aedat
+      AND a~ekorg IN @s_ekorg
+      AND a~lifnr IN @s_lifnr
+      AND b~werks IN @s_werks
+      AND b~loekz = @gc_space
+      AND b~elikz = @gc_space
+      AND b~wemng < b~menge.
+
+  IF sy-subrc <> 0.
+    RETURN.
+  ENDIF.
+
+  SORT lt_ekko_ekpo BY ebeln ebelp.
+
+  LOOP AT lt_ekko_ekpo ASSIGNING FIELD-SYMBOL(<ls_ekko_ekpo>).
+    "Compute open quantity and skip fully received
+    lv_open = <ls_ekko_ekpo>-menge - <ls_ekko_ekpo>-wemng.
+    IF lv_open LE 0.
+      CONTINUE.
+    ENDIF.
+
+    "Fill ALV row
+    CLEAR gs_alv.
+    gs_alv-ebeln      = <ls_ekko_ekpo>-ebeln.
+    gs_alv-ebelp      = <ls_ekko_ekpo>-ebelp.
+    gs_alv-matnr      = <ls_ekko_ekpo>-matnr.
+    gs_alv-lifnr      = <ls_ekko_ekpo>-lifnr.
+    gs_alv-menge      = <ls_ekko_ekpo>-menge.
+    gs_alv-wemng      = <ls_ekko_ekpo>-wemng.
+    gs_alv-open_qty   = lv_open.
+    gs_alv-aedat      = <ls_ekko_ekpo>-aedat.
+    gs_alv-flag_close = gc_space.
+    CLEAR gs_alv-message.
+    APPEND gs_alv TO gt_alv.
+
+    "Buffer BSART for authorization check
+    DATA(ls_map) = VALUE ty_bsart_map( ebeln = <ls_ekko_ekpo>-ebeln bsart = <ls_ekko_ekpo>-bsart ).
+    INSERT ls_map INTO TABLE gt_bsart_map.
+  ENDLOOP.
+
+  "Apply safety cap
+  DESCRIBE TABLE gt_alv LINES lv_rows.
+  IF lv_rows GT p_max AND p_max GT 0.
+    lv_from_idx = p_max + 1.
+    DELETE gt_alv FROM lv_from_idx.
+  ENDIF.
+ENDFORM.
+
+FORM frm_build_fieldcat.
+  "Build LVC field catalog and layout for ALV
+  CLEAR: gt_fcat, gs_layout.
+
+  gs_layout-zebra      = abap_true.
+  gs_layout-cwidth_opt = abap_true.
+
+  "Key and descriptive fields
+  PERFORM frm_add_fcat USING 'EBELN'        'PO Number'         'EKKO' 'EBELN' ''  'X' space space.
+  PERFORM frm_add_fcat USING 'EBELP'        'Item'              'EKPO' 'EBELP' ''  'X' space space.
+  PERFORM frm_add_fcat USING 'LIFNR'        'Vendor'            'EKKO' 'LIFNR' ''  space space space.
+  PERFORM frm_add_fcat USING 'MATNR'        'Material'          'EKPO' 'MATNR' ''  space space space.
+  PERFORM frm_add_fcat USING 'MENGE'        'Order Qty'         'EKPO' 'MENGE' ''  space space space.
+  PERFORM frm_add_fcat USING 'WEMNG'        'GR Qty'            'EKPO' 'WEMNG' ''  space space space.
+  PERFORM frm_add_fcat USING 'OPEN_QTY'     'Open Qty'          ''     ''      ''  space space space.
+  PERFORM frm_add_fcat USING 'AEDAT'        'Last Change Date'  'EKKO' 'AEDAT' ''  space space space.
+
+  "Editable checkbox to select items for closure
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = 'FLAG_CLOSE'.
+  gs_fcat-coltext   = 'Closure Flag'.
+  gs_fcat-scrtext_l = 'Closure Flag'.
+  gs_fcat-scrtext_m = 'Close'.
+  gs_fcat-scrtext_s = 'Close'.
+  gs_fcat-checkbox  = abap_true.
+  gs_fcat-edit      = abap_true.
+  gs_fcat-outputlen = 5.
+  APPEND gs_fcat TO gt_fcat.
+
+  "Message column
+  PERFORM frm_add_fcat USING 'MESSAGE' 'Status Message' '' '' '' space space space.
+ENDFORM.
+
+FORM frm_add_fcat USING    p_fieldname TYPE lvc_fname
+                            p_text      TYPE scrtext_l
+                            p_ref_tab   TYPE tabname
+                            p_ref_field TYPE fieldname
+                            p_rollname  TYPE rollname
+                            p_key       TYPE c
+                            p_no_out    TYPE c
+                            p_do_sum    TYPE c.
+  "Helper to add a field to LVC field catalog
+  CLEAR gs_fcat.
+  gs_fcat-fieldname = p_fieldname.
+  gs_fcat-coltext   = p_text.
+  gs_fcat-scrtext_l = p_text.
+  gs_fcat-scrtext_m = p_text.
+  gs_fcat-scrtext_s = p_text.
+  gs_fcat-key       = p_key.
+  gs_fcat-no_out    = p_no_out.
+  gs_fcat-do_sum    = p_do_sum.
+  IF p_ref_tab IS NOT INITIAL AND p_ref_field IS NOT INITIAL.
+    gs_fcat-ref_table = p_ref_tab.
+    gs_fcat-ref_field = p_ref_field.
+  ENDIF.
+  IF p_rollname IS NOT INITIAL.
+    gs_fcat-rollname = p_rollname.
+  ENDIF.
+  APPEND gs_fcat TO gt_fcat.
+ENDFORM.
+
+FORM frm_display_alv.
+  "Display ALV Grid with callbacks
+  DATA: lt_sort TYPE lvc_t_sort,
+        ls_sort TYPE lvc_s_sort.
+
+  gs_variant-report   = g_repid.
+  gs_variant-username = sy-uname.
+
+  "Sort by PO / Item
+  CLEAR ls_sort.
+  ls_sort-fieldname = 'EBELN'.
+  ls_sort-up        = abap_true.
+  APPEND ls_sort TO lt_sort.
+
+  CLEAR ls_sort.
+  ls_sort-fieldname = 'EBELP'.
+  ls_sort-up        = abap_true.
+  APPEND ls_sort TO lt_sort.
+
+  CALL FUNCTION 'REUSE_ALV_GRID_DISPLAY_LVC'
+    EXPORTING
+      i_callback_program       = g_repid
+      i_callback_pf_status_set = 'FRM_PF_STATUS'
+      i_callback_user_command  = 'FRM_USER_COMMAND'
+      i_callback_top_of_page   = 'FRM_TOP_OF_PAGE'
+      is_layout_lvc            = gs_layout
+      it_fieldcat_lvc          = gt_fcat
+      it_sort_lvc              = lt_sort
+      i_save                   = g_save
+      is_variant               = gs_variant
+    TABLES
+      t_outtab                 = gt_alv
+    EXCEPTIONS
+      program_error            = 1
+      OTHERS                   = 2.
+  IF sy-subrc <> 0.
+    MESSAGE 'ALV Display error' TYPE 'E'.
+  ENDIF.
+ENDFORM.
+
+FORM frm_pf_status USING rt_extab TYPE slis_t_extab.
+  "Set GUI status and title
+  SET PF-STATUS 'ZMM_ALV_STATUS' EXCLUDING rt_extab.
+  SET TITLEBAR 'ZMM_ALV_TITLE'.
+ENDFORM.
+
+FORM frm_top_of_page.
+  "ALV Top-of-Page summary
+  DATA: lt_list TYPE slis_t_listheader,
+        ls_list TYPE slis_listheader.
+
+  REFRESH lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'H'.
+  ls_list-info = |Close Open POs - { sy-datum } { sy-uzeit }|.
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Simulate Mode'.
+  ls_list-info = COND string( WHEN gv_simulate = abap_true THEN 'ON (no updates/logs)' ELSE 'OFF' ).
+  APPEND ls_list TO lt_list.
+
+  CLEAR ls_list.
+  ls_list-typ  = 'S'.
+  ls_list-key  = 'Rows'.
+  ls_list-info = |{ lines( gt_alv ) } items|.
+  APPEND ls_list TO lt_list.
+
+  CALL FUNCTION 'REUSE_ALV_COMMENTARY_WRITE'
+    EXPORTING
+      it_list_commentary = lt_list.
+ENDFORM.
+
+FORM frm_user_command USING r_ucomm     LIKE sy-ucomm
+                            rs_selfield TYPE slis_selfield.
+  "Handle ALV user commands
+  CASE r_ucomm.
+    WHEN 'EXEC'.              "Execute closure
+      PERFORM frm_process_closure.
+      rs_selfield-refresh = gc_x.
+      PERFORM frm_refresh_alv.
+    WHEN '&REFRESH' OR 'REFR'. "Refresh display
+      rs_selfield-refresh = gc_x.
+      PERFORM frm_refresh_alv.
+    WHEN OTHERS.
+      "No action
+  ENDCASE.
+ENDFORM.
+
+FORM frm_refresh_alv.
+  "Refresh ALV grid display (stable refresh)
+  CALL FUNCTION 'GET_GLOBALS_FROM_SLVC_FULLSCR'
+    IMPORTING
+      e_grid = g_grid.
+  IF g_grid IS BOUND.
+    CALL METHOD g_grid->refresh_table_display
+      EXPORTING
+        is_stable = VALUE lvc_s_stbl( row = abap_true col = abap_true ).
+  ENDIF.
+ENDFORM.
+
+FORM frm_process_closure.
+  "Process selected items: authorization, simulate/execute BAPI, and logging
+  DATA: lt_selected TYPE STANDARD TABLE OF ty_po_close,
+        ls_sel      TYPE ty_po_close.
+
+  DATA: lt_item   TYPE TABLE OF bapimepoitem,
+        lt_itemx  TYPE TABLE OF bapimepoitemx,
+        ls_item   TYPE bapimepoitem,
+        ls_itemx  TYPE bapimepoitemx,
+        lt_return TYPE TABLE OF bapiret2,
+        ls_return TYPE bapiret2.
+
+  DATA: lv_auth_ok  TYPE abap_bool,
+        lv_bsart    TYPE bsart,
+        ls_bsart    TYPE ty_bsart_map,
+        lv_msg      TYPE string,
+        lv_has_error TYPE abap_bool.
+
+  CLEAR: gv_count_selected, gv_count_success, gv_count_failed.
+
+  "Collect items marked for closure
+  LOOP AT gt_alv INTO ls_sel WHERE flag_close = gc_x.
+    APPEND ls_sel TO lt_selected.
+  ENDLOOP.
+  gv_count_selected = lines( lt_selected ).
+
+  IF gv_count_selected = 0.
+    MESSAGE 'No items marked for closure (FLAG_CLOSE)' TYPE 'I'.
+    RETURN.
+  ENDIF.
+
+  LOOP AT lt_selected INTO ls_sel.
+    CLEAR: lv_bsart, ls_bsart, lv_auth_ok, lv_msg.
+    READ TABLE gt_bsart_map INTO ls_bsart WITH TABLE KEY ebeln = ls_sel-ebeln.
+    IF sy-subrc = 0.
+      lv_bsart = ls_bsart-bsart.
+    ENDIF.
+
+    "Authorization check per PO type (BSART)
+    PERFORM frm_authority_check USING ls_sel-ebeln lv_bsart CHANGING lv_auth_ok.
+    IF lv_auth_ok <> abap_true.
+      lv_msg = |Not authorized for PO type { lv_bsart }|.
+      PERFORM frm_update_message_in_alv USING ls_sel-ebeln ls_sel-ebelp lv_msg gc_status_fail.
+      ADD 1 TO gv_count_failed.
+      CONTINUE.
+    ENDIF.
+
+    "Skip if open qty <= 0 (safety)
+    IF ls_sel-open_qty LE 0.
+      lv_msg = 'Open quantity is zero; nothing to close'.
+      PERFORM frm_update_message_in_alv USING ls_sel-ebeln ls_sel-ebelp lv_msg gc_status_fail.
+      ADD 1 TO gv_count_failed.
+      CONTINUE.
+    ENDIF.
+
+    "Simulation branch (no updates/logging)
+    IF gv_simulate = abap_true.
+      lv_msg = 'Simulated: would set Delivery Completed (no update/log)'.
+      PERFORM frm_update_message_in_alv USING ls_sel-ebeln ls_sel-ebelp lv_msg gc_status_success.
+      CONTINUE.
+    ENDIF.
+
+    "Prepare BAPI change: set Delivery Completed indicator (NO_MORE_GR)
+    REFRESH: lt_item, lt_itemx, lt_return.
+    CLEAR: ls_item, ls_itemx.
+
+    ls_item-po_item    = ls_sel-ebelp.
+    ls_item-no_more_gr = gc_x.
+    APPEND ls_item TO lt_item.
+
+    ls_itemx-po_item    = ls_sel-ebelp.
+    ls_itemx-no_more_gr = gc_x.
+    ls_itemx-updateflag = 'U'.
+    APPEND ls_itemx TO lt_itemx.
+
+    CALL FUNCTION 'BAPI_PO_CHANGE'
+      EXPORTING
+        purchaseorder = ls_sel-ebeln
+      TABLES
+        return        = lt_return
+        poitem        = lt_item
+        poitemx       = lt_itemx.
+
+    lv_has_error = abap_false.
+    CLEAR lv_msg.
+
+    "Collect errors (E/A/X)
+    LOOP AT lt_return INTO ls_return WHERE type CA 'EAX'.
+      lv_has_error = abap_true.
+      IF lv_msg IS INITIAL.
+        lv_msg = |{ ls_return-id } { ls_return-number }: { ls_return-message }|.
+      ELSE.
+        lv_msg = lv_msg && ' | ' && ls_return-message.
+      ENDIF.
+    ENDLOOP.
+
+    IF lv_has_error = abap_true.
+      ROLLBACK WORK.
+      IF lv_msg IS INITIAL.
+        lv_msg = 'BAPI_PO_CHANGE returned error'.
+      ENDIF.
+      PERFORM frm_update_message_in_alv USING ls_sel-ebeln ls_sel-ebelp lv_msg gc_status_fail.
+      PERFORM frm_log_update USING ls_sel-ebeln ls_sel-ebelp gc_status_fail lv_msg.
+      ADD 1 TO gv_count_failed.
+      CONTINUE.
+    ENDIF.
+
+    CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+      EXPORTING
+        wait = abap_true.
+
+    lv_msg = 'Closed (Delivery Completed set)'.
+    PERFORM frm_update_message_in_alv USING ls_sel-ebeln ls_sel-ebelp lv_msg gc_status_success.
+    PERFORM frm_log_update USING ls_sel-ebeln ls_sel-ebelp gc_status_success lv_msg.
+    ADD 1 TO gv_count_success.
+  ENDLOOP.
+
+  MESSAGE |Processed: { gv_count_selected } selected, { gv_count_success } success, { gv_count_failed } failed| TYPE 'S'.
+ENDFORM.
+
+FORM frm_authority_check USING    p_ebeln   TYPE ebeln
+                                  p_bsart   TYPE bsart
+                         CHANGING p_auth_ok TYPE abap_bool.
+  "Check user authorization for the PO type (BSART)
+  p_auth_ok = abap_true.
+
+  IF p_bsart IS INITIAL.
+    SELECT SINGLE bsart FROM ekko INTO @p_bsart WHERE ebeln = @p_ebeln.
+  ENDIF.
+
+  IF p_bsart IS INITIAL.
+    p_auth_ok = abap_false.
+    RETURN.
+  ENDIF.
+
+  AUTHORITY-CHECK OBJECT 'M_BEST_BSA'
+    ID 'BSART' FIELD p_bsart
+    ID 'ACTVT' FIELD '02'.  "Change
+  IF sy-subrc <> 0.
+    p_auth_ok = abap_false.
+  ENDIF.
+ENDFORM.
+
+FORM frm_log_update USING p_ebeln TYPE ebeln
+                          p_ebelp TYPE ebelp
+                          p_stat  TYPE c
+                          p_msg   TYPE string.
+  "Write/update closure result to application log table ZPO_CLOSE_LOG
+  DATA: ls_log TYPE zpo_close_log.
+
+  CLEAR ls_log.
+  ls_log-mandt   = sy-mandt.
+  ls_log-ebeln   = p_ebeln.
+  ls_log-ebelp   = p_ebelp.
+  ls_log-ernam   = sy-uname.
+  ls_log-erdat   = sy-datum.
+  ls_log-erzet   = sy-uzeit.
+  ls_log-status  = p_stat.
+  ls_log-message = p_msg.
+
+  MODIFY zpo_close_log FROM ls_log.
+  IF sy-subrc <> 0.
+    INSERT zpo_close_log FROM ls_log.
+  ENDIF.
+ENDFORM.
+
+FORM frm_update_message_in_alv USING p_ebeln TYPE ebeln
+                                     p_ebelp TYPE ebelp
+                                     p_msg   TYPE string
+                                     p_stat  TYPE c.
+  "Update status message and clear selection flag for processed row
+  READ TABLE gt_alv INTO gs_alv WITH KEY ebeln = p_ebeln ebelp = p_ebelp.
+  IF sy-subrc = 0.
+    gs_alv-message = p_msg.
+    IF gv_simulate = abap_false.
+      gs_alv-flag_close = gc_space.
+    ENDIF.
+    MODIFY gt_alv FROM gs_alv INDEX sy-tabix.
+  ENDIF.
+ENDFORM.

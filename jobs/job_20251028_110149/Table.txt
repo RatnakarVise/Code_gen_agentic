@@ -1,0 +1,9 @@
+TABLE zpo_close_log
+  MANDT        TYPE MANDT      LENGTH 3  NOT NULL  " Client
+  EBELN       TYPE EBELN     LENGTH 10 NOT NULL  " Purchase Order Number
+  EBELP       TYPE EBELP     LENGTH 5  NOT NULL  " Item Number
+  ERNAM       TYPE ERNAM     LENGTH 12 NOT NULL  " User who executed closure
+  ERDAT       TYPE ERDAT     LENGTH 8  NOT NULL  " Date of closure
+  ERZET       TYPE ERZET     LENGTH 6  NOT NULL  " Time of closure
+  STATUS      TYPE CHAR1     LENGTH 1  NOT NULL  " Closure status (S/F)
+  MESSAGE     TYPE CHAR100   LENGTH 100          " Status message

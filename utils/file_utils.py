@@ -4,12 +4,13 @@ import logging
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("file_utils")
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] file_utils - %(message)s"
-)
+# logger = logging.getLogger("file_utils")
+# logging.basicConfig(
+#     level=logging.INFO,
+#     format="%(asctime)s [%(levelname)s] file_utils - %(message)s"
+# )
 
 
 def extract_sections_from_text(text: str) -> Dict[str, str]:

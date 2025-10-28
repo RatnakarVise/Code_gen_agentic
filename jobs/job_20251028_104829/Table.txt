@@ -1,0 +1,9 @@
+TABLE ZPO_CLOSE_LOG
+  CLIENT      MANDT      D   3   NOT NULL,  "Client"
+  EBELN      EBELN      D   10  NOT NULL,  "Purchase Order Number"
+  EBELP      EBELP      D   5   NOT NULL,  "Item Number"
+  ERNAM      ERNAM      D   12  NOT NULL,  "User who executed closure"
+  ERDAT      ERDAT      D   8   NOT NULL,  "Date of closure"
+  ERZET      ERZET      D   6   NOT NULL,  "Time of closure"
+  STATUS      CHAR1      D   1   NOT NULL,  "Closure Status (S/F)"
+  MESSAGE     CHAR100    D   100  NULL,  "Status Message"

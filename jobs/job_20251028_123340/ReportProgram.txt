@@ -1,0 +1,513 @@
+REPORT zmm_close_open_po.
+
+"-----------------------------------------------------------------------
+" Global Declarations
+"-----------------------------------------------------------------------
+TYPE-POOLS: icon.
+
+" Application constants
+CONSTANTS:
+  gc_true       TYPE abap_bool VALUE abap_true,
+  gc_false      TYPE abap_bool VALUE abap_false,
+  gc_fc_close   TYPE syucomm   VALUE 'CLOSE',     " ALV toolbar function: Close Selected
+  gc_fc_refresh TYPE syucomm   VALUE 'REFRESH'.   " ALV toolbar function: Refresh
+
+" DDIC structure for ALV/output
+TYPES: ty_po_close TYPE zstr_po_close.
+TYPES: tt_po_close TYPE STANDARD TABLE OF ty_po_close WITH EMPTY KEY.
+
+" Header helper for authorization and re-use
+TYPES: BEGIN OF ty_header,
+         ebeln TYPE ebeln,
+         bsart TYPE ekko-bsart,
+       END OF ty_header.
+
+" Join helper for initial fetch
+TYPES: BEGIN OF ty_join,
+         ebeln   TYPE ebeln,
+         ebelp   TYPE ebelp,
+         lifnr   TYPE lifnr,
+         matnr   TYPE matnr,
+         menge   TYPE ekpo-menge,
+         wemng   TYPE ekpo-wemng,
+         aedat_h TYPE ekko-aedat,
+         aedat_i TYPE ekpo-aedat,
+         elikz   TYPE ekpo-elikz,
+         loekz   TYPE ekpo-loekz,
+         werks   TYPE ekpo-werks,
+         bsart   TYPE ekko-bsart,
+       END OF ty_join.
+
+" Application data
+DATA:
+  lt_output TYPE tt_po_close,
+  ls_output TYPE ty_po_close,
+  lt_join   TYPE STANDARD TABLE OF ty_join   WITH EMPTY KEY,
+  lt_header TYPE HASHED TABLE OF ty_header   WITH UNIQUE KEY ebeln,
+  ls_header TYPE ty_header.
+
+" ALV objects and artifacts
+DATA:
+  lo_dock   TYPE REF TO cl_gui_docking_container,
+  lo_grid   TYPE REF TO cl_gui_alv_grid,
+  lt_fcat   TYPE lvc_t_fcat,
+  ls_fcat   TYPE lvc_s_fcat,
+  ls_layout TYPE lvc_s_layo.
+
+"-----------------------------------------------------------------------
+" Local ALV Event Handler Class
+" - Adds custom toolbar buttons
+" - Handles user commands
+" - Supports double-click toggle of close flag
+"-----------------------------------------------------------------------
+CLASS lcl_alv_events DEFINITION.
+  PUBLIC SECTION.
+    METHODS:
+      on_toolbar      FOR EVENT toolbar OF cl_gui_alv_grid
+        IMPORTING e_object e_interactive,
+      on_user_command FOR EVENT user_command OF cl_gui_alv_grid
+        IMPORTING e_ucomm,
+      on_double_click FOR EVENT double_click OF cl_gui_alv_grid
+        IMPORTING e_row e_column es_row_no.
+ENDCLASS.
+
+CLASS lcl_alv_events IMPLEMENTATION.
+  METHOD on_toolbar.
+    DATA ls_btn TYPE stb_button.
+
+    " Add CLOSE button
+    CLEAR ls_btn.
+    ls_btn-function  = gc_fc_close.
+    ls_btn-icon      = icon_okay.
+    ls_btn-quickinfo = 'Close Selected'.
+    ls_btn-text      = 'Close Selected'.
+    ls_btn-butn_type = 0.
+    APPEND ls_btn TO e_object->mt_toolbar.
+
+    " Add REFRESH button
+    CLEAR ls_btn.
+    ls_btn-function  = gc_fc_refresh.
+    ls_btn-icon      = icon_refresh.
+    ls_btn-quickinfo = 'Refresh'.
+    ls_btn-text      = 'Refresh'.
+    ls_btn-butn_type = 0.
+    APPEND ls_btn TO e_object->mt_toolbar.
+  ENDMETHOD.
+
+  METHOD on_user_command.
+    CASE e_ucomm.
+      WHEN gc_fc_close.
+        " Apply any pending ALV edits
+        IF lo_grid IS BOUND.
+          lo_grid->check_changed_data( ).
+        ENDIF.
+
+        " Process closures and refresh grid
+        PERFORM process_closure.
+        IF lo_grid IS BOUND.
+          lo_grid->refresh_table_display(
+            EXPORTING
+              is_stable      = VALUE lvc_s_stbl( row = 'X' col = 'X' )
+              i_soft_refresh = abap_true ).
+        ENDIF.
+
+      WHEN gc_fc_refresh.
+        " Re-fetch and refresh display
+        PERFORM fetch_data.
+        IF lo_grid IS BOUND.
+          lo_grid->refresh_table_display(
+            EXPORTING
+              is_stable      = VALUE lvc_s_stbl( row = 'X' col = 'X' )
+              i_soft_refresh = abap_true ).
+        ENDIF.
+    ENDCASE.
+  ENDMETHOD.
+
+  METHOD on_double_click.
+    " Toggle close flag on double click and refresh display
+    READ TABLE lt_output INDEX es_row_no-row_id INTO ls_output.
+    IF sy-subrc = 0.
+      ls_output-flag_close = COND abap_bool( WHEN ls_output-flag_close = gc_true THEN gc_false ELSE gc_true ).
+      MODIFY lt_output FROM ls_output INDEX es_row_no-row_id.
+      IF lo_grid IS BOUND.
+        lo_grid->refresh_table_display(
+          EXPORTING
+            is_stable      = VALUE lvc_s_stbl( row = 'X' col = 'X' )
+            i_soft_refresh = abap_true ).
+      ENDIF.
+    ENDIF.
+  ENDMETHOD.
+ENDCLASS.
+
+DATA lo_events TYPE REF TO lcl_alv_events.
+
+"-----------------------------------------------------------------------
+" Selection Screen
+"-----------------------------------------------------------------------
+SELECTION-SCREEN BEGIN OF BLOCK b1 WITH FRAME TITLE text-t01.
+SELECT-OPTIONS:
+  s_ekorg FOR ekko-ekorg,
+  s_werks FOR ekpo-werks,
+  s_lifnr FOR ekko-lifnr,
+  s_ebeln FOR ekko-ebeln,
+  s_aedat FOR ekko-aedat.
+PARAMETERS:
+  p_sim AS CHECKBOX DEFAULT 'X' USER-COMMAND ucom.
+SELECTION-SCREEN END OF BLOCK b1.
+
+INITIALIZATION.
+  text-t01 = 'PO Selection'.
+
+"-----------------------------------------------------------------------
+" Start-of-selection: Fetch and display data
+"-----------------------------------------------------------------------
+START-OF-SELECTION.
+  PERFORM fetch_data.
+  PERFORM build_and_display_alv.
+
+"-----------------------------------------------------------------------
+" FORM: build_and_display_alv
+" - Create ALV container/grid once
+" - Build field catalog and layout
+" - Bind events and display data
+"-----------------------------------------------------------------------
+FORM build_and_display_alv.
+  " Create docking container and grid if not yet created
+  IF lo_dock IS NOT BOUND.
+    CREATE OBJECT lo_dock
+      EXPORTING
+        repid     = sy-repid
+        dynnr     = sy-dynnr
+        side      = cl_gui_docking_container=>dock_at_left
+        extension = 2000.
+
+    CREATE OBJECT lo_grid
+      EXPORTING
+        i_parent = lo_dock.
+
+    " Register event handlers
+    CREATE OBJECT lo_events.
+    SET HANDLER lo_events->on_toolbar      FOR lo_grid.
+    SET HANDLER lo_events->on_user_command FOR lo_grid.
+    SET HANDLER lo_events->on_double_click FOR lo_grid.
+  ENDIF.
+
+  " Build field catalog
+  CLEAR lt_fcat.
+  PERFORM add_fcat USING 'EBELN'       'PO Number'        abap_false abap_false abap_true  ''.
+  PERFORM add_fcat USING 'EBELP'       'Item'             abap_false abap_false abap_true  ''.
+  PERFORM add_fcat USING 'LIFNR'       'Vendor'           abap_false abap_false abap_false ''.
+  PERFORM add_fcat USING 'MATNR'       'Material'         abap_false abap_false abap_false ''.
+  PERFORM add_fcat USING 'MENGE'       'Order Qty'        abap_false abap_false abap_false ''.
+  PERFORM add_fcat USING 'WEMNG'       'GR Qty'           abap_false abap_false abap_false ''.
+  PERFORM add_fcat USING 'OPEN_QTY'    'Open Qty'         abap_false abap_false abap_false ''.
+  PERFORM add_fcat USING 'AEDAT'       'Last Change'      abap_false abap_false abap_false ''.
+  PERFORM add_fcat USING 'FLAG_CLOSE'  'Closure Flag'     abap_true  abap_true  abap_false 'X'.
+  PERFORM add_fcat USING 'MESSAGE'     'Status Message'   abap_false abap_false abap_false ''.
+
+  " Layout settings
+  CLEAR ls_layout.
+  ls_layout-zebra      = abap_true.
+  ls_layout-cwidth_opt = abap_true.
+  ls_layout-sel_mode   = 'A'.
+
+  " First display
+  lo_grid->set_table_for_first_display(
+    EXPORTING
+      is_layout       = ls_layout
+      i_save          = 'A'
+    CHANGING
+      it_outtab       = lt_output
+      it_fieldcatalog = lt_fcat ).
+
+  " Allow editing of checkbox column
+  lo_grid->set_ready_for_input(
+    EXPORTING
+      i_ready_for_input = 1 ).
+ENDFORM.
+
+"-----------------------------------------------------------------------
+" FORM: add_fcat
+" - Helper to append a field catalog line
+"-----------------------------------------------------------------------
+FORM add_fcat USING iv_fieldname TYPE lvc_fname
+                    iv_coltext   TYPE scrtext_s
+                    iv_edit      TYPE abap_bool
+                    iv_key       TYPE abap_bool
+                    iv_hotspot   TYPE abap_bool
+                    iv_checkbox  TYPE c.
+  CLEAR ls_fcat.
+  ls_fcat-fieldname = iv_fieldname.
+  ls_fcat-coltext   = iv_coltext.
+  ls_fcat-scrtext_s = iv_coltext.
+  ls_fcat-scrtext_m = iv_coltext.
+  ls_fcat-scrtext_l = iv_coltext.
+  ls_fcat-edit      = iv_edit.
+  ls_fcat-key       = iv_key.
+  ls_fcat-hotspot   = iv_hotspot.
+
+  IF iv_checkbox = 'X'.
+    ls_fcat-checkbox  = abap_true.
+    ls_fcat-edit      = abap_true.
+    ls_fcat-outputlen = 1.
+  ENDIF.
+
+  " Technical settings for specific fields
+  IF iv_fieldname = 'EBELP'.
+    ls_fcat-outputlen = 5.
+  ENDIF.
+  IF iv_fieldname = 'OPEN_QTY' OR iv_fieldname = 'MENGE' OR iv_fieldname = 'WEMNG'.
+    ls_fcat-do_sum = abap_true.
+  ENDIF.
+
+  APPEND ls_fcat TO lt_fcat.
+ENDFORM.
+
+"-----------------------------------------------------------------------
+" FORM: fetch_data
+" - Pull open PO items based on selection criteria
+" - Build ALV output and header buffer for later auth checks
+"-----------------------------------------------------------------------
+FORM fetch_data.
+  CLEAR: lt_output, lt_join, lt_header.
+
+  " Fetch open PO items with single join and selection criteria
+  SELECT
+    ekko~ebeln,
+    ekpo~ebelp,
+    ekko~lifnr,
+    ekpo~matnr,
+    ekpo~menge,
+    ekpo~wemng,
+    ekko~aedat AS aedat_h,
+    ekpo~aedat AS aedat_i,
+    ekpo~elikz,
+    ekpo~loekz,
+    ekpo~werks,
+    ekko~bsart
+    FROM ekko
+    INNER JOIN ekpo ON ekpo~ebeln = ekko~ebeln
+    INTO TABLE @lt_join
+    WHERE ekko~ebeln IN @s_ebeln
+      AND ekko~ekorg IN @s_ekorg
+      AND ekko~lifnr IN @s_lifnr
+      AND ekko~aedat IN @s_aedat
+      AND ekpo~werks IN @s_werks
+      AND ekpo~loekz = @space
+      AND ekpo~elikz <> 'X'
+      AND ekpo~menge > ekpo~wemng.
+
+  IF sy-subrc <> 0.
+    MESSAGE 'No open PO items found for given selection' TYPE 'I'.
+    RETURN.
+  ENDIF.
+
+  " Build output and header buffer
+  LOOP AT lt_join ASSIGNING FIELD-SYMBOL(<ls_join>).
+    CLEAR ls_output.
+    ls_output-ebeln       = <ls_join>-ebeln.
+    ls_output-ebelp       = <ls_join>-ebelp.
+    ls_output-lifnr       = <ls_join>-lifnr.
+    ls_output-matnr       = <ls_join>-matnr.
+    ls_output-menge       = <ls_join>-menge.
+    ls_output-wemng       = <ls_join>-wemng.
+    ls_output-open_qty    = <ls_join>-menge - <ls_join>-wemng.
+    ls_output-aedat       = <ls_join>-aedat_h.
+    ls_output-flag_close  = gc_false.
+    CLEAR ls_output-message.
+    APPEND ls_output TO lt_output.
+
+    " Buffer header for auth check
+    READ TABLE lt_header WITH TABLE KEY ebeln = <ls_join>-ebeln TRANSPORTING NO FIELDS.
+    IF sy-subrc <> 0.
+      ls_header-ebeln = <ls_join>-ebeln.
+      ls_header-bsart = <ls_join>-bsart.
+      INSERT ls_header INTO TABLE lt_header.
+    ENDIF.
+  ENDLOOP.
+ENDFORM.
+
+"-----------------------------------------------------------------------
+" FORM: process_closure
+" - Collect selected items
+" - Group by PO and perform authorization + BAPI call per PO
+" - Update ALV messages and write audit log
+"-----------------------------------------------------------------------
+FORM process_closure.
+  DATA lt_selected     TYPE tt_po_close.
+  DATA ls_sel          TYPE ty_po_close.
+  DATA lt_items_in_po  TYPE tt_po_close.
+  DATA lv_current_ebeln TYPE ebeln.
+
+  " Collect items marked for closure and validate open qty
+  LOOP AT lt_output INTO ls_sel WHERE flag_close = gc_true.
+    IF ls_sel-open_qty <= 0.
+      ls_sel-message = 'No open quantity - skipping'.
+      MODIFY lt_output FROM ls_sel TRANSPORTING message WHERE ebeln = ls_sel-ebeln AND ebelp = ls_sel-ebelp.
+      CONTINUE.
+    ENDIF.
+    APPEND ls_sel TO lt_selected.
+  ENDLOOP.
+
+  IF lt_selected IS INITIAL.
+    MESSAGE 'No items selected for closure' TYPE 'I'.
+    RETURN.
+  ENDIF.
+
+  " Process per PO using classic grouping
+  SORT lt_selected BY ebeln ebelp.
+
+  CLEAR: lt_items_in_po, lv_current_ebeln.
+  LOOP AT lt_selected INTO ls_sel.
+    AT NEW ebeln.
+      CLEAR lt_items_in_po.
+      lv_current_ebeln = ls_sel-ebeln.
+    ENDAT.
+
+    APPEND ls_sel TO lt_items_in_po.
+
+    AT END OF ebeln.
+      " Authorization check for PO type (M_BEST_BSA, ACTVT 02 Change)
+      DATA(lv_bsart) = VALUE ekko-bsart( ).
+      READ TABLE lt_header INTO ls_header WITH TABLE KEY ebeln = lv_current_ebeln.
+      IF sy-subrc = 0.
+        lv_bsart = ls_header-bsart.
+      ELSE.
+        SELECT SINGLE bsart INTO @lv_bsart FROM ekko WHERE ebeln = @lv_current_ebeln.
+      ENDIF.
+
+      AUTHORITY-CHECK OBJECT 'M_BEST_BSA'
+        ID 'BSART' FIELD lv_bsart
+        ID 'ACTVT' FIELD '02'.
+      IF sy-subrc <> 0.
+        " Not authorized - mark as failed
+        LOOP AT lt_items_in_po INTO DATA(ls_fail).
+          ls_fail-message = |No authorization for PO type { lv_bsart }|.
+          MODIFY lt_output FROM ls_fail TRANSPORTING message WHERE ebeln = ls_fail-ebeln AND ebelp = ls_fail-ebelp.
+          PERFORM write_log USING ls_fail-ebeln ls_fail-ebelp 'F' ls_fail-message.
+        ENDLOOP.
+        CONTINUE.
+      ENDIF.
+
+      " Simulation mode - do not call BAPI
+      IF p_sim = abap_true.
+        LOOP AT lt_items_in_po INTO DATA(ls_sim).
+          ls_sim-message = 'Simulated: would set Delivery Completed'.
+          MODIFY lt_output FROM ls_sim TRANSPORTING message WHERE ebeln = ls_sim-ebeln AND ebelp = ls_sim-ebelp.
+        ENDLOOP.
+        CONTINUE.
+      ENDIF.
+
+      " Prepare BAPI structures
+      DATA: lt_poitem   TYPE TABLE OF bapimepoitem,
+            lt_poitemx  TYPE TABLE OF bapimepoitemx,
+            ls_poitem   TYPE bapimepoitem,
+            ls_poitemx  TYPE bapimepoitemx,
+            lt_return   TYPE TABLE OF bapiret2,
+            ls_return   TYPE bapiret2.
+
+      CLEAR: lt_poitem, lt_poitemx, lt_return.
+
+      LOOP AT lt_items_in_po INTO DATA(ls_i).
+        CLEAR: ls_poitem, ls_poitemx.
+        ls_poitem-po_item     = ls_i-ebelp.
+        ls_poitem-deliv_compl = 'X'.         " Set Delivery Completed
+
+        ls_poitemx-po_item     = ls_i-ebelp.
+        ls_poitemx-deliv_compl = 'X'.
+        ls_poitemx-updateflag  = 'U'.
+
+        APPEND ls_poitem  TO lt_poitem.
+        APPEND ls_poitemx TO lt_poitemx.
+      ENDLOOP.
+
+      " Call BAPI to set delivery completion indicator for items
+      CALL FUNCTION 'BAPI_PO_CHANGE'
+        EXPORTING
+          purchaseorder = lv_current_ebeln
+        TABLES
+          return        = lt_return
+          poitem        = lt_poitem
+          poitemx       = lt_poitemx.
+
+      " Check for errors
+      DATA(lv_has_error) = abap_false.
+      LOOP AT lt_return INTO ls_return WHERE type = 'E' OR type = 'A'.
+        lv_has_error = abap_true.
+        EXIT.
+      ENDLOOP.
+
+      IF lv_has_error = abap_true.
+        CALL FUNCTION 'BAPI_TRANSACTION_ROLLBACK'.
+
+        " Mark all items as failed and log first error message
+        READ TABLE lt_return INTO ls_return WITH KEY type = 'E'.
+        IF sy-subrc <> 0.
+          READ TABLE lt_return INTO ls_return WITH KEY type = 'A'.
+        ENDIF.
+
+        DATA(lv_msg) = COND string(
+                         WHEN sy-subrc = 0
+                         THEN |{ ls_return-id } { ls_return-number } { ls_return-message }|
+                         ELSE 'BAPI error - rollback executed' ).
+
+        LOOP AT lt_items_in_po INTO DATA(ls_fail2).
+          ls_fail2-message = lv_msg.
+          MODIFY lt_output FROM ls_fail2 TRANSPORTING message WHERE ebeln = ls_fail2-ebeln AND ebelp = ls_fail2-ebelp.
+          PERFORM write_log USING ls_fail2-ebeln ls_fail2-ebelp 'F' ls_fail2-message.
+        ENDLOOP.
+
+      ELSE.
+        " Commit and mark success per item, log message (collect warnings/info)
+        CALL FUNCTION 'BAPI_TRANSACTION_COMMIT'
+          EXPORTING
+            wait = 'X'.
+
+        DATA(lv_info_msg) = VALUE string( ).
+        READ TABLE lt_return INTO ls_return WITH KEY type = 'S'.
+        IF sy-subrc = 0.
+          lv_info_msg = |{ ls_return-message }|.
+        ELSE.
+          READ TABLE lt_return INTO ls_return WITH KEY type = 'W'.
+          IF sy-subrc = 0.
+            lv_info_msg = |{ ls_return-message }|.
+          ELSE.
+            lv_info_msg = 'Closed successfully'.
+          ENDIF.
+        ENDIF.
+
+        LOOP AT lt_items_in_po INTO DATA(ls_ok).
+          ls_ok-message = lv_info_msg.
+          MODIFY lt_output FROM ls_ok TRANSPORTING message WHERE ebeln = ls_ok-ebeln AND ebelp = ls_ok-ebelp.
+          PERFORM write_log USING ls_ok-ebeln ls_ok-ebelp 'S' ls_ok-message.
+        ENDLOOP.
+      ENDIF.
+    ENDAT.
+  ENDLOOP.
+ENDFORM.
+
+"-----------------------------------------------------------------------
+" FORM: write_log
+" - Upsert to custom audit log table ZPO_CLOSE_LOG
+"-----------------------------------------------------------------------
+FORM write_log USING iv_ebeln TYPE ebeln
+                     iv_ebelp TYPE ebelp
+                     iv_stat  TYPE c
+                     iv_msg   TYPE string.
+  DATA ls_log TYPE zpo_close_log.
+
+  CLEAR ls_log.
+  ls_log-ebeln   = iv_ebeln.
+  ls_log-ebelp   = iv_ebelp.
+  ls_log-ernam   = sy-uname.
+  ls_log-erdat   = sy-datum.
+  ls_log-erzet   = sy-uzeit.
+  ls_log-status  = iv_stat.
+  ls_log-message = iv_msg.
+
+  " Upsert behavior
+  MODIFY zpo_close_log FROM ls_log.
+  IF sy-subrc <> 0.
+    INSERT zpo_close_log FROM ls_log.
+  ENDIF.
+ENDFORM.

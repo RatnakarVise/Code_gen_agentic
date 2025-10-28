@@ -1,0 +1,109 @@
+# 1. OVERVIEW
+ABAP structures are DDIC objects that hold related fields together without database persistence.
+They can be used in reports, ALV outputs, interfaces, or as components of tables and CDS views.
+
+# 2. STRUCTURE NAMING CONVENTIONS
+IF name not provided in document then,
+| Type | Prefix Example | Description |
+|------|----------------|--------------|
+| Standalone Structure | `ZSTR_` | Custom reusable structure |
+| Include Structure | `ZINC_` | Used for inclusion in other DDIC objects |
+| Append Structure | `ZAPP_` | Used to extend SAP standard structures/tables |
+
+Rules:
+- Names must begin with `Z` .
+- All field names in uppercase.
+- Each field must have a short annotation: `@EndUserText.label`.
+- Use standard data elements where possible.
+
+# 3. STANDALONE STRUCTURE EXAMPLE
+
+```abap
+@EndUserText.label : 'Structure for Purchase Order Closure Details'
+@AbapCatalog.enhancementCategory : #NOT_EXTENSIBLE
+define structure ZSTR_PO_CLOSE {
+
+  @EndUserText.label : 'Purchase Order Number'
+  EBELN : EBELN;
+
+  @EndUserText.label : 'Item Number'
+  EBELP : EBELP;
+
+  @EndUserText.label : 'Material Number'
+  MATNR : MATNR;
+
+  @EndUserText.label : 'Vendor Number'
+  LIFNR : LIFNR;
+
+  @EndUserText.label : 'Order Quantity'
+  MENGE : MENGE_D;
+
+  @EndUserText.label : 'Open Quantity'
+  OPEN_QTY : MENGE_D;
+
+  @EndUserText.label : 'Last Change Date'
+  AEDAT : AEDAT;
+
+  @EndUserText.label : 'Closure Flag'
+  FLAG_CLOSE : CHAR1;
+}
+
+# 4. INCLUDE STRUCTURE (ZINC_)
+@EndUserText.label : 'Include Structure for Audit Fields'
+@AbapCatalog.enhancementCategory : #NOT_EXTENSIBLE
+define structure ZINC_AUDIT_FIELDS {
+
+  @EndUserText.label : 'Created By User'
+  ERNAM : ERNAM;
+
+  @EndUserText.label : 'Created On Date'
+  ERDAT : ERDAT;
+
+  @EndUserText.label : 'Changed By User'
+  AENAM : AENAM;
+
+  @EndUserText.label : 'Changed On Date'
+  AEDAT : AEDAT;
+}
+# 5. APPEND STRUCTURE (ZAPP_)
+@EndUserText.label : 'Append Structure for Customer Fields in EKKO'
+@AbapCatalog.enhancementCategory : #EXTENSIBLE_UNDERLYING
+append structure ZAPP_EKKO_CUSTOMER_FIELDS to EKKO {
+
+  @EndUserText.label : 'Customer Reference Number'
+  ZZCUST_REF : CHAR20;
+
+  @EndUserText.label : 'Business Unit'
+  ZZBU_UNIT : CHAR10;
+
+  @EndUserText.label : 'Additional Notes'
+  ZZNOTE : CHAR100;
+}
+# 6. STRUCTURE CREATION RULES
+
+- Use `define structure` for standalone and include structures.
+- Use `append structure ... to ...` for append structures.
+- Always use `@EndUserText.label` before each field.
+- Apply `@AbapCatalog.enhancementCategory` annotation:
+  - `#NOT_EXTENSIBLE` for standalone and include structures.
+  - `#EXTENSIBLE_UNDERLYING` for append structures.
+- Data elements should come from standard SAP dictionary if applicable.
+- If the data element is not available, use domain-like types (`CHAR10`, `NUMC8`, `DEC(13,2)` etc.) with a short label.
+- Use uppercase field names and meaningful identifiers.
+- Maintain consistent indentation and alignment.
+
+# 7. USAGE CONTEXT GUIDELINES
+
+- **Standalone Structure:** When requirement describes a logical record, entity, or grouping of fields (e.g., "Purchase Order Details", "Employee Summary").
+- **Include Structure:** When the same fields are to be reused across multiple tables or structures (e.g., "Audit Fields", "Header Info").
+- **Append Structure:** When requirement mentions adding customer or extension fields to an existing SAP table or structure (e.g., "Add custom fields to EKKO").
+
+# 8. NAMING BEST PRACTICES
+
+- Use descriptive suffixes:
+  - `_HDR` for header-level fields
+  - `_ITM` for item-level structures
+  - `_EXT` for extension structures
+- Example: `ZSTR_SALES_HDR`, `ZINC_AUDIT_FIELDS`, `ZAPP_EKKO_EXT`
+- Avoid numbers or special characters in object names.
+- Keep total length ≤ 30 characters.

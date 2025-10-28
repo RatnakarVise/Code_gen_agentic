@@ -1,0 +1,21 @@
+CREATE TABLE zpo_close_log (
+  mandt      mandt NOT NULL,
+  ebeln     ebeln NOT NULL,
+  ebelp     ebelp NOT NULL,
+  ername     ername,
+  erdat      erdat,
+  erzet      erzat,
+  status     char1,
+  message    char100,
+  PRIMARY KEY (mandt, ebeln, ebelp)
+) WITH DEFAULT CHARSET utf8;
+
+COMMENT ON TABLE zpo_close_log IS 'Log table to store PO closure details';
+COMMENT ON COLUMN zpo_close_log.mandt IS 'Client';
+COMMENT ON COLUMN zpo_close_log.ebeln IS 'Purchase order number';
+COMMENT ON COLUMN zpo_close_log.ebelp IS 'Item number';
+COMMENT ON COLUMN zpo_close_log.ername IS 'User who executed closure';
+COMMENT ON COLUMN zpo_close_log.erdat IS 'Date of closure';
+COMMENT ON COLUMN zpo_close_log.erzet IS 'Time of closure';
+COMMENT ON COLUMN zpo_close_log.status IS 'Closure status (s/f)';
+COMMENT ON COLUMN zpo_close_log.message IS 'Status message';

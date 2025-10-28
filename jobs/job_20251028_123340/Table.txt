@@ -1,0 +1,18 @@
+DEFINE TABLE zpo_close_log {
+  mandt      : CLNT(3)    NOT NULL, // Client
+  ebeln      : CHAR(10)   NOT NULL, // Purchasing Document Number
+  ebelp      : NUMC(5)    NOT NULL, // Item Number
+  ernam      : CHAR(12)   NOT NULL, // User Who Executed Closure
+  erdat      : DATS       NOT NULL, // Date of Closure
+  erzet      : TIMS       NOT NULL, // Time of Closure
+  status     : CHAR(1)    NOT NULL, // Closure Status (S/F)
+  message    : CHAR(100),           // Status Message
+  PRIMARY KEY (mandt, ebeln, ebelp)
+} 
+// @EndUserText.label : 'PO Closure Audit Log'
+// @AbapCatalog.dataCategory : #TABLE
+// @AbapCatalog.deliveryClass : #A
+// @AbapCatalog.dataMaintenance : #ALLOWED
+// @AbapCatalog.buffering.status : #NOT_ALLOWED
+// @AbapCatalog.sizeCategory : 0
+// @AbapCatalog.dataClass : #APPL0

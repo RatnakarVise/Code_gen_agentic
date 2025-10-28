@@ -1,0 +1,126 @@
+
+# 1. OVERVIEW
+
+ABAP transparent tables are persistent database tables defined in the Data Dictionary (DDIC).
+They store data physically in the database and are the foundation of most SAP applications.
+
+Each transparent table must have:
+A technical name (starting with Z for custom).
+A primary key.
+At least one data field and a delivery class.
+Optional foreign key relationships and annotations.
+
+# 2. TABLE NAMING CONVENTIONS
+If table name not provided in document then,
+Element	Convention	Example
+Table Name	Starts with ZTB_	ZTB_SALES_HDR
+Key Fields	Usually IDs or Numbers	MANDT, DOC_NO, ITEM_NO
+Data Fields	Meaningful business names	MATNR, LIFNR, AMOUNT
+Include Structure	Use INCLUDE STRUCTURE ZINC_…	INCLUDE STRUCTURE ZINC_AUDIT_FIELDS
+Append Structure	APPEND STRUCTURE ZAPP_…	APPEND STRUCTURE ZAPP_EKKO_EXT
+# 3. TABLE CREATION RULES
+
+Always include client field (MANDT) if the table is client-dependent.
+Use @EndUserText.label annotation for the table and every field.
+Use @AbapCatalog.enhancementCategory to define extensibility:
+#NOT_EXTENSIBLE — no extensions allowed.
+#EXTENSIBLE_UNDERLYING — allow append structures.
+Use standrd data elements (like EBELN, MATNR, AEDAT) wherever possible.
+Maintain a primary key (single or composite).
+Avoid duplicate field names.
+Define clear foreign key relationships if applicable.
+Align field order logically — keys first, then data fields, then audit fields.
+
+# 4. BASIC TABLE TEMPLATE
+@EndUserText.label : 'Table for Purchase Order Closure'
+@AbapCatalog.enhancementCategory : #NOT_EXTENSIBLE
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.tableCategory : #TRANSPARENT
+define table ZTB_PO_CLOSE {
+
+  key MANDT : MANDT not null;
+
+  @EndUserText.label : 'Purchase Order Number'
+  key EBELN : EBELN not null;
+
+  @EndUserText.label : 'Item Number'
+  key EBELP : EBELP not null;
+
+  @EndUserText.label : 'Material Number'
+  MATNR : MATNR;
+
+  @EndUserText.label : 'Vendor Number'
+  LIFNR : LIFNR;
+
+  @EndUserText.label : 'Order Quantity'
+  MENGE : MENGE_D;
+
+  @EndUserText.label : 'Goods Received Quantity'
+  WEMNG : MENGE_D;
+
+  @EndUserText.label : 'Open Quantity'
+  OPEN_QTY : MENGE_D;
+
+  @EndUserText.label : 'Last Change Date'
+  AEDAT : AEDAT;
+
+  INCLUDE STRUCTURE ZINC_AUDIT_FIELDS;
+}
+
+# 5. TABLE EXTENSION EXAMPLE (APPEND STRUCTURE)
+@EndUserText.label : 'Append Structure for Custom Fields in Purchase Order Table'
+@AbapCatalog.enhancementCategory : #EXTENSIBLE_UNDERLYING
+append structure ZAPP_PO_ADD_FIELDS to ZTB_PO_CLOSE {
+
+  @EndUserText.label : 'Custom Reference Number'
+  ZZREF_NUM : CHAR20;
+
+  @EndUserText.label : 'Project Code'
+  ZZPROJ_CODE : CHAR10;
+}
+
+# 6. FIELD NAMING & DATA ELEMENT RULES
+Field Type	Example	Recommendation
+Client Field	MANDT	Always first if client-dependent
+Key Field	DOC_NO, ITEM_NO	Always in uppercase
+Quantity / Amount	MENGE, WRBTR	Use existing standard elements
+Text Field	DESCRIPTION, ZZNOTE	Use CHAR or STRING
+Date / Time	ERDAT, AEDAT, ERZET	Use standard elements
+Boolean / Flag	ACTIVE, FLAG_CLOSE	Type CHAR1
+
+
+# 7. NAMING BEST PRACTICES
+
+Prefix with module or purpose:
+ZTB_SALES_HDR, ZTB_PO_ITEM, ZTB_AUDIT_LOG
+Limit total name length ≤ 30 characters.
+Avoid special characters or reserved words.
+Use suffix _HDR or _ITM for clarity.
+
+# 11. QUICK REFERENCE: ANNOTATIONS CHEATSHEET
+Annotation	Description
+@EndUserText.label	Adds descriptive label for UI and DDIC
+@AbapCatalog.enhancementCategory	Defines extensibility type
+@AbapCatalog.deliveryClass	Controls transport and client behavior
+@AbapCatalog.tableCategory	Defines physical table type (#TRANSPARENT)
+@AbapCatalog.foreignKey.keyType	Defines foreign key relationship type
+# 12. SAMPLE TABLE VARIANTS
+(a) Header Table Example
+define table ZTB_SALES_HDR {
+  key MANDT : MANDT not null;
+  key VBELN : VBELN not null;
+  KUNNR : KUNNR;
+  VKORG : VKORG;
+  ERDAT : ERDAT;
+  ERNAM : ERNAM;
+}
+
+(b) Item Table Example
+define table ZTB_SALES_ITM {
+  key MANDT : MANDT not null;
+  key VBELN : VBELN not null;
+  key POSNR : POSNR not null;
+  MATNR : MATNR;
+  MENGE : MENGE_D;
+  NETWR : WRBTR;
+}
