@@ -13,7 +13,6 @@ IF name not provided in document then,
 Rules:
 - Names must begin with `Z`.
 - All field names in uppercase.
-- Each field must have a short annotation: `@EndUserText.label`.
 - Use standard data elements where possible.
 
 # 3. STANDALONE STRUCTURE EXAMPLE
@@ -21,28 +20,20 @@ Rules:
 @AbapCatalog.enhancementCategory : #NOT_EXTENSIBLE
 define structure ZSTR_PO_CLOSE {
 
-  @EndUserText.label : 'Purchase Order Number'
   EBELN : EBELN;
 
-  @EndUserText.label : 'Item Number'
   EBELP : EBELP;
 
-  @EndUserText.label : 'Material Number'
   MATNR : MATNR;
 
-  @EndUserText.label : 'Vendor Number'
   LIFNR : LIFNR;
 
-  @EndUserText.label : 'Order Quantity'
   MENGE : MENGE_D;
 
-  @EndUserText.label : 'Open Quantity'
   OPEN_QTY : MENGE_D;
 
-  @EndUserText.label : 'Last Change Date'
   AEDAT : AEDAT;
 
-  @EndUserText.label : 'Closure Flag'
   FLAG_CLOSE : CHAR1;
 }
 
@@ -51,16 +42,12 @@ define structure ZSTR_PO_CLOSE {
 @AbapCatalog.enhancementCategory : #NOT_EXTENSIBLE
 define structure ZINC_AUDIT_FIELDS {
 
-  @EndUserText.label : 'Created By User'
   ERNAM : ERNAM;
 
-  @EndUserText.label : 'Created On Date'
   ERDAT : ERDAT;
 
-  @EndUserText.label : 'Changed By User'
   AENAM : AENAM;
 
-  @EndUserText.label : 'Changed On Date'
   AEDAT : AEDAT;
 }
 
@@ -69,20 +56,16 @@ define structure ZINC_AUDIT_FIELDS {
 @AbapCatalog.enhancementCategory : #EXTENSIBLE_UNDERLYING
 append structure ZAPP_EKKO_CUSTOMER_FIELDS to EKKO {
 
-  @EndUserText.label : 'Customer Reference Number'
   ZZCUST_REF : CHAR20;
 
-  @EndUserText.label : 'Business Unit'
   ZZBU_UNIT : CHAR10;
 
-  @EndUserText.label : 'Additional Notes'
   ZZNOTE : CHAR100;
 }
 
 # 6. STRUCTURE CREATION RULES
 - Use `define structure` for standalone and include structures.
 - Use `append structure ... to ...` for append structures.
-- Always use `@EndUserText.label` before each field.
 - Apply `@AbapCatalog.enhancementCategory` annotation:
   - `#NOT_EXTENSIBLE` for standalone and include structures.
   - `#EXTENSIBLE_UNDERLYING` for append structures.
@@ -116,7 +99,6 @@ define structure ZSTR_PO_AUDIT {
   INCLUDE STRUCTURE ZSTR_PO_CLOSE;
   INCLUDE STRUCTURE ZINC_AUDIT_FIELDS;
 
-  @EndUserText.label : 'Processing Status'
   STATUS : CHAR1;
 }
 
@@ -134,10 +116,8 @@ Example:
 @AbapCatalog.enhancementCategory : #EXTENSIBLE_UNDERLYING
 append structure ZAPP_PO_AUDIT_EXT to ZSTR_PO_AUDIT {
 
-  @EndUserText.label : 'User Comment'
   ZZUSER_NOTE : CHAR200;
 
-  @EndUserText.label : 'Approval Flag'
   ZZAPPROVED : CHAR1;
 }
 
@@ -158,29 +138,22 @@ Example:
 @AbapCatalog.enhancementCategory : #NOT_EXTENSIBLE
 define structure ZSTR_SO_PRICE_DETAILS {
 
-  @EndUserText.label : 'Sales Order Number'
   VBELN : VBELN;
 
-  @EndUserText.label : 'Item Number'
   POSNR : POSNR;
 
-  @EndUserText.label : 'Currency Key'
   @Semantics.currencyCode : true
   WAERS : WAERS;
 
-  @EndUserText.label : 'Net Amount'
   @Semantics.amount.currencyCode : 'WAERS'
   NETWR : CURR15_2;
 
-  @EndUserText.label : 'Gross Amount'
   @Semantics.amount.currencyCode : 'WAERS'
   GROSSWR : CURR15_2;
 
-  @EndUserText.label : 'Order Quantity'
   @Semantics.quantity.unitOfMeasure : 'MEINS'
   KWMENG : QUAN13_3;
 
-  @EndUserText.label : 'Unit of Measure'
   @Semantics.unitOfMeasure : true
   MEINS : MEINS;
 }

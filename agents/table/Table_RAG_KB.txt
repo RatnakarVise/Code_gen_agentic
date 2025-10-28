@@ -24,7 +24,7 @@ If table name not provided in document then,
 
 - Always include client field (MANDT) if the table is client-dependent.  
   → **MANDT must always have a foreign key relationship to T000 (Client Table).**
-- Use @EndUserText.label annotation for the table and every field.
+- Use @EndUserText.label annotation for the table.
 - Use @AbapCatalog.enhancementCategory to define extensibility:
   - `#NOT_EXTENSIBLE` — no extensions allowed.
   - `#EXTENSIBLE_UNDERLYING` — allow append structures.
@@ -41,34 +41,26 @@ If table name not provided in document then,
 @AbapCatalog.tableCategory : #TRANSPARENT
 define table ZTB_PO_CLOSE {
 
-  @EndUserText.label : 'Client'
   @AbapCatalog.foreignKey.keyType : #PRIMARY_KEY
+  @AbapCatalog.foreignKey.screenCheck : true
   key MANDT : MANDT not null
-    with foreign key T000
-      where CLIENT = MANDT;
+    with foreign key[1..*,1] T000
+      where MANDT = ekko.MANDT;
 
-  @EndUserText.label : 'Purchase Order Number'
   key EBELN : EBELN not null;
 
-  @EndUserText.label : 'Item Number'
   key EBELP : EBELP not null;
 
-  @EndUserText.label : 'Material Number'
   MATNR : MATNR;
 
-  @EndUserText.label : 'Vendor Number'
   LIFNR : LIFNR;
 
-  @EndUserText.label : 'Order Quantity'
   MENGE : MENGE_D;
 
-  @EndUserText.label : 'Goods Received Quantity'
   WEMNG : MENGE_D;
 
-  @EndUserText.label : 'Open Quantity'
   OPEN_QTY : MENGE_D;
 
-  @EndUserText.label : 'Last Change Date'
   AEDAT : AEDAT;
 
   INCLUDE STRUCTURE ZINC_AUDIT_FIELDS;
@@ -79,10 +71,8 @@ define table ZTB_PO_CLOSE {
 @AbapCatalog.enhancementCategory : #EXTENSIBLE_UNDERLYING
 append structure ZAPP_PO_ADD_FIELDS to ZTB_PO_CLOSE {
 
-  @EndUserText.label : 'Custom Reference Number'
   ZZREF_NUM : CHAR20;
 
-  @EndUserText.label : 'Project Code'
   ZZPROJ_CODE : CHAR10;
 }
 
@@ -116,26 +106,29 @@ They should be defined using `with foreign key` in the DDL definition.
 @AbapCatalog.tableCategory : #TRANSPARENT
 define table ZTB_MAT_TRACK {
 
-  @EndUserText.label : 'Client'
   @AbapCatalog.foreignKey.keyType : #PRIMARY_KEY
+  @AbapCatalog.foreignKey.screenCheck : true
   key MANDT : MANDT not null
-    with foreign key T000
-      where CLIENT = MANDT;
+    with foreign key[1..*,1] T000
+      where MANDT = ekko.MANDT;
 
-  @EndUserText.label : 'Material Number'
   key MATNR : MATNR not null
     with foreign key MARA
       where MATNR = MATNR;
 
-  @EndUserText.label : 'Plant'
   key WERKS : WERKS_D not null
     with foreign key T001W
       where WERKS = WERKS;
 
-  @EndUserText.label : 'Tracking Quantity'
+  @AbapCatalog.foreignKey.keyType : #NON_KEY
+  @AbapCatalog.foreignKey.screenCheck : true
+  extend bukrs:
+  with foreign key[1..*,1]T001
+  where mandt = ekko.mandt
+        bukrs = ekko.bukrs;
+
   TRACK_QTY : MENGE_D;
 
-  @EndUserText.label : 'Last Updated Date'
   AEDAT : AEDAT;
 }
 
@@ -165,8 +158,11 @@ define table ZTB_MAT_TRACK {
 @AbapCatalog.deliveryClass : #A
 define table ZTB_SALES_HDR {
 
+  @AbapCatalog.foreignKey.keyType : #PRIMARY_KEY
+  @AbapCatalog.foreignKey.screenCheck : true
   key MANDT : MANDT not null
-    with foreign key T000 where CLIENT = MANDT;
+    with foreign key[1..*,1] T000
+      where MANDT = ekko.MANDT;
 
   key VBELN : VBELN not null;
 
@@ -182,11 +178,17 @@ define table ZTB_SALES_HDR {
 @AbapCatalog.deliveryClass : #A
 define table ZTB_SALES_ITM {
 
+  @AbapCatalog.foreignKey.keyType : #PRIMARY_KEY
+  @AbapCatalog.foreignKey.screenCheck : true
   key MANDT : MANDT not null
-    with foreign key T000 where CLIENT = MANDT;
-
+    with foreign key[1..*,1] T000
+      where MANDT = ekko.MANDT;
+  
+  @AbapCatalog.foreignKey.keyType : #PRIMARY_KEY
+  @AbapCatalog.foreignKey.screenCheck : true
   key VBELN : VBELN not null
-    with foreign key ZTB_SALES_HDR where VBELN = VBELN;
+    with foreign key[1..*,1] ZTB_SALES_HDR 
+    where VBELN = VBELN;
 
   key POSNR : POSNR not null;
 

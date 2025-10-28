@@ -39,9 +39,15 @@ class TableAgent(BaseAgent):
 
         embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
+        # Rebuild vectorstore if KB updated after FAISS creation
         if vs_path.exists():
-            self.logger.info("📚 Loading existing FAISS vector DB for TableAgent...")
-            return FAISS.load_local(vs_path, embeddings, allow_dangerous_deserialization=True)
+            kb_mtime = kb_path.stat().st_mtime if kb_path.exists() else 0
+            vs_mtime = max(f.stat().st_mtime for f in vs_path.glob("**/*"))
+            if kb_mtime <= vs_mtime:
+                self.logger.info("📚 Loading existing FAISS vector DB for TableAgent...")
+                return FAISS.load_local(vs_path, embeddings, allow_dangerous_deserialization=True)
+            else:
+                self.logger.info("🔄 KB updated — rebuilding FAISS index...")
 
         if not kb_path.exists():
             self.logger.warning(f"⚠️ No KB file found at {kb_path}. Proceeding without RAG context.")
@@ -55,7 +61,7 @@ class TableAgent(BaseAgent):
         vectorstore.save_local(vs_path)
         self.logger.info("✅ New FAISS vector DB created for TableAgent.")
         return vectorstore
-
+    
     def _get_relevant_context(self, query: str, k: int = 4) -> str:
         """
         Retrieves top-k relevant KB chunks from vector DB for given query.

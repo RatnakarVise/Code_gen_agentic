@@ -34,15 +34,18 @@ class ReportProgramAgent(BaseAgent):
         """
         kb_path = Path(os.path.dirname(__file__)) / "Report_RAG_KB.txt"
         vs_path = Path(os.path.dirname(__file__)) / "rag_vector_store"
-
         embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
-        # Load existing vector DB if available
+        # Rebuild vectorstore if KB updated after FAISS creation
         if vs_path.exists():
-            self.logger.info("📚 Loading existing FAISS vector DB...")
-            return FAISS.load_local(vs_path, embeddings, allow_dangerous_deserialization=True)
+            kb_mtime = kb_path.stat().st_mtime if kb_path.exists() else 0
+            vs_mtime = max(f.stat().st_mtime for f in vs_path.glob("**/*"))
+            if kb_mtime <= vs_mtime:
+                self.logger.info("📚 Loading existing FAISS vector DB for ReportAgent...")
+                return FAISS.load_local(vs_path, embeddings, allow_dangerous_deserialization=True)
+            else:
+                self.logger.info("🔄 KB updated — rebuilding FAISS index...")
 
-        # Otherwise build it fresh
         if not kb_path.exists():
             self.logger.warning(f"⚠️ No KB file found at {kb_path}. Proceeding without RAG context.")
             return None
@@ -53,9 +56,9 @@ class ReportProgramAgent(BaseAgent):
 
         vectorstore = FAISS.from_documents(docs, embeddings)
         vectorstore.save_local(vs_path)
-        self.logger.info("✅ New FAISS vector DB created and saved.")
+        self.logger.info("✅ New FAISS vector DB created for ReportAgent.")
         return vectorstore
-
+    
     def _get_relevant_context(self, query: str, k: int = 4) -> str:
         """
         Retrieves top-k relevant KB chunks from vector DB for given query.
@@ -109,6 +112,7 @@ class ReportProgramAgent(BaseAgent):
                 "Always ensure correctness, readability, and maintainability in the generated ABAP code. "
                 "Always use includes for data declaration and selection screen first and then main program logic."
                 "Always use local classes and methods for modularization."
+                "Before any include program and class logic, always add the main Executable Program logic which will call those created includes and classes."
             )
         )
 

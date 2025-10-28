@@ -39,12 +39,16 @@ class StructureAgent(BaseAgent):
 
         embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
-        # Load existing vector DB if available
+        # Rebuild vectorstore if KB updated after FAISS creation
         if vs_path.exists():
-            self.logger.info("📚 Loading existing FAISS vector DB for StructureAgent...")
-            return FAISS.load_local(vs_path, embeddings, allow_dangerous_deserialization=True)
+            kb_mtime = kb_path.stat().st_mtime if kb_path.exists() else 0
+            vs_mtime = max(f.stat().st_mtime for f in vs_path.glob("**/*"))
+            if kb_mtime <= vs_mtime:
+                self.logger.info("📚 Loading existing FAISS vector DB for StructureAgent...")
+                return FAISS.load_local(vs_path, embeddings, allow_dangerous_deserialization=True)
+            else:
+                self.logger.info("🔄 KB updated — rebuilding FAISS index...")
 
-        # Otherwise build it fresh
         if not kb_path.exists():
             self.logger.warning(f"⚠️ No KB file found at {kb_path}. Proceeding without RAG context.")
             return None
@@ -55,9 +59,9 @@ class StructureAgent(BaseAgent):
 
         vectorstore = FAISS.from_documents(docs, embeddings)
         vectorstore.save_local(vs_path)
-        self.logger.info("✅ New FAISS vector DB for StructureAgent created and saved.")
+        self.logger.info("✅ New FAISS vector DB created for StructureAgent.")
         return vectorstore
-
+    
     # --- Retrieve relevant RAG chunks ---
     def _get_relevant_context(self, query: str, k: int = 4) -> str:
         if not hasattr(self, "vectorstore") or self.vectorstore is None:
