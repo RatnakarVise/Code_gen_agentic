@@ -92,6 +92,7 @@ class StructureAgent(BaseAgent):
                 "You are a senior SAP ABAP developer specializing in Data Dictionary (DDIC) design. "
                 "Follow SAP field naming standards, domain/data element conventions, and maintain readability. "
                 "Ensure structures are semantically meaningful and consistent with business context."
+                "Do not generate invalid annotations, stick to RAG file"
             )
         )
 
@@ -132,13 +133,14 @@ class StructureAgent(BaseAgent):
         structure_purpose = data.get("structure_purpose", "").strip()
 
         # --- Save structure code ---
-        out_path = self.job_dir / "Structure.txt"
-        out_path.write_text(structure_code, encoding="utf-8")
+        # out_path = self.job_dir / "Structure.txt"
+        # out_path.write_text(structure_code, encoding="utf-8")
 
-        self.logger.info(f"✅ StructureAgent outputs written to: {out_path}")
+        self.logger.info(f"✅ StructureAgent output: {structure_code}")
 
         return {
             "purpose": structure_purpose,
-            "path": out_path,
+            "code": structure_code,
+            # "path": out_path,
             "type": "structure"
         }

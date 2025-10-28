@@ -48,9 +48,9 @@ def get_job_dir(base_dir: str = "jobs") -> Path:
     """
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     job_dir = Path(base_dir) / f"job_{timestamp}"
-    job_dir.mkdir(parents=True, exist_ok=True)
+    # job_dir.mkdir(parents=True, exist_ok=True)
 
-    logger.info(f"Created job directory: {job_dir}")
+    # logger.info(f"Created job directory: {job_dir}")
     return job_dir
 
 

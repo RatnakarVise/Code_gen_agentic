@@ -94,6 +94,7 @@ class TableAgent(BaseAgent):
                 "Follow SAP best practices for transparent table creation, including naming conventions, "
                 "key fields, technical settings, and field documentation. "
                 "Always generate clean, valid, and well-commented ABAP DDL code for tables."
+                "Do not generate invalid annotations, stick to RAG file"
             )
         )
 
@@ -135,14 +136,15 @@ class TableAgent(BaseAgent):
         table_purpose = data.get("table_purpose", "").strip()
 
         # --- Save result ---
-        out_path = self.job_dir / "Table.txt"
-        out_path.write_text(table_code, encoding="utf-8")
+        # out_path = self.job_dir / "Table.txt"
+        # out_path.write_text(table_code, encoding="utf-8")
 
-        self.logger.info(f"✅ TableAgent outputs written to: {out_path}")
+        self.logger.info(f"✅ TableAgent output: {table_code}")
         self.logger.debug(f"Extracted Table Purpose: {table_purpose[:200]}...")
 
         return {
             "type": "table",
             "purpose": table_purpose,
-            "path": out_path
+            "code": table_code,
+            # "path": out_path
         }

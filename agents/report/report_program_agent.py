@@ -151,8 +151,8 @@ class ReportProgramAgent(BaseAgent):
         final_code = re.sub(r"```(?:abap)?|```", "", final_code).strip()
 
         # --- Save Output ---
-        out_path = self.job_dir / "ReportProgram.txt"
-        out_path.write_text(final_code, encoding="utf-8")
+        # out_path = self.job_dir / "ReportProgram.txt"
+        # out_path.write_text(final_code, encoding="utf-8")
 
-        self.logger.info(f"✅ Final ABAP report generated: {out_path}")
-        return out_path
+        # self.logger.info(f"✅ Final ABAP report generated: {final_code}")
+        return final_code
