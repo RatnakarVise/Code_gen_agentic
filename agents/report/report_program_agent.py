@@ -108,6 +108,7 @@ class ReportProgramAgent(BaseAgent):
                 "Follow SAP best practices, naming conventions, and modularization principles. "
                 "Always ensure correctness, readability, and maintainability in the generated ABAP code. "
                 "Always use includes for data declaration and selection screen first and then main program logic."
+                "Always use local classes and methods for modularization."
             )
         )
 
