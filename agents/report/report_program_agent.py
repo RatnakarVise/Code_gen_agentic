@@ -1,5 +1,5 @@
 import os
-import re
+import re, asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -74,7 +74,26 @@ class ReportProgramAgent(BaseAgent):
         combined = "\n\n".join([r.page_content for r in results])
         self.logger.info(f"📖 Retrieved {len(results)} RAG context chunks.")
         return combined
-
+    # -------------------------------------------------------------------------
+    # 🧩 Retry logic with 600s timeout for LLM calls
+    # -------------------------------------------------------------------------
+    async def _call_llm_with_retry(self, messages, max_retries=3, timeout=900):
+        """
+        Calls the LLM up to max_retries times with timeout for each attempt.
+        """
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.logger.info(f"🌀 Attempt {attempt}/{max_retries} - Calling LLM...")
+                result = await asyncio.wait_for(self.llm.agenerate([messages]), timeout=timeout)
+                text = result.generations[0][0].text.strip()
+                return text
+            except asyncio.TimeoutError:
+                self.logger.warning(f"⏰ Timeout after {timeout}s on attempt {attempt}")
+            except Exception as e:
+                self.logger.error(f"⚠️ LLM call failed on attempt {attempt}: {e}")
+            await asyncio.sleep(2)
+        return "[Error: All LLM attempts failed after 3 retries.]"
+    
     # --- Main Execution ---
     def run(self, section_text: str, purposes: dict | None = None, metadata=None) -> Path:
         if not section_text:
@@ -126,12 +145,16 @@ class ReportProgramAgent(BaseAgent):
         Requirement Context:
         {full_context}
         """
+        async def run_async():
+            return await self._call_llm_with_retry([system_message, HumanMessage(content=draft_prompt)])
+        
+        draft_code = asyncio.run(run_async())
 
-        resp_draft = self.llm.invoke([
-            system_message,
-            HumanMessage(content=draft_prompt)
-        ])
-        draft_code = getattr(resp_draft, "content", str(resp_draft))
+        # resp_draft = self.llm.invoke([
+        #     system_message,
+        #     HumanMessage(content=draft_prompt)
+        # ])
+        # draft_code = getattr(resp_draft, "content", str(resp_draft))
         draft_code = re.sub(r"```(?:abap)?|```", "", draft_code).strip()
 
         # --- Step 2: Refine Code ---
@@ -147,16 +170,17 @@ class ReportProgramAgent(BaseAgent):
         {draft_code}
         """
 
-        resp_refine = self.llm.invoke([
-            system_message,
-            HumanMessage(content=refine_prompt)
-        ])
-        final_code = getattr(resp_refine, "content", str(resp_refine))
-        final_code = re.sub(r"```(?:abap)?|```", "", final_code).strip()
+        # resp_refine = self.llm.invoke([
+        #     system_message,
+        #     HumanMessage(content=refine_prompt)
+        # ])
+        # final_code = getattr(resp_refine, "content", str(resp_refine))
+        # final_code = re.sub(r"```(?:abap)?|```", "", final_code).strip()
 
         # --- Save Output ---
         # out_path = self.job_dir / "ReportProgram.txt"
         # out_path.write_text(final_code, encoding="utf-8")
 
         # self.logger.info(f"✅ Final ABAP report generated: {final_code}")
-        return final_code
+        self.logger.info("✅ ABAP report generated successfully.")
+        return draft_code

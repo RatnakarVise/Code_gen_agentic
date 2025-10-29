@@ -130,7 +130,7 @@ def run_job(job_id: str, requirement_text: str):
                 logger.warning(f"[{job_id}] ClassAgent returned empty code.")
         else:
             logger.info(f"[{job_id}] No class section found — skipping ClassAgent.")
-            
+
         # -------------------- Run Report Agent --------------------
         if report_text:
             logger.info(f"[{job_id}] Running ReportProgramAgent...")

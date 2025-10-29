@@ -1,5 +1,5 @@
 import os
-import re
+import re, asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
@@ -74,7 +74,25 @@ class ClassAgent(BaseAgent):
         combined = "\n\n".join([r.page_content for r in results])
         self.logger.info(f"📖 Retrieved {len(results)} RAG context chunks for class.")
         return combined
-
+    # -------------------------------------------------------------------------
+    # 🧩 Retry logic with 600s timeout for LLM calls
+    # -------------------------------------------------------------------------
+    async def _call_llm_with_retry(self, messages, max_retries=3, timeout=900):
+        """
+        Calls the LLM up to max_retries times with timeout for each attempt.
+        """
+        for attempt in range(1, max_retries + 1):
+            try:
+                self.logger.info(f"🌀 Attempt {attempt}/{max_retries} - Calling LLM...")
+                result = await asyncio.wait_for(self.llm.agenerate([messages]), timeout=timeout)
+                text = result.generations[0][0].text.strip()
+                return text
+            except asyncio.TimeoutError:
+                self.logger.warning(f"⏰ Timeout after {timeout}s on attempt {attempt}")
+            except Exception as e:
+                self.logger.error(f"⚠️ LLM call failed on attempt {attempt}: {e}")
+            await asyncio.sleep(2)
+        return "[Error: All LLM attempts failed after 3 retries.]"
     # --- Main Execution ---
     def run(self, section_text: str, purposes: dict | None = None, metadata=None) -> dict:
         if not section_text:
@@ -148,12 +166,12 @@ class ClassAgent(BaseAgent):
         {draft_code}
         """
 
-        resp_refine = self.llm.invoke([
-            system_message,
-            HumanMessage(content=refine_prompt)
-        ])
-        final_code = getattr(resp_refine, "content", str(resp_refine))
-        final_code = re.sub(r"```(?:abap)?|```", "", final_code).strip()
+        # resp_refine = self.llm.invoke([
+        #     system_message,
+        #     HumanMessage(content=refine_prompt)
+        # ])
+        # final_code = getattr(resp_refine, "content", str(resp_refine))
+        # final_code = re.sub(r"```(?:abap)?|```", "", final_code).strip()
 
         # --- Step 3: Generate Purpose ---
         purpose_prompt = f"""
@@ -164,18 +182,21 @@ class ClassAgent(BaseAgent):
         Use structured sentences (no code). Keep it factual and easy to understand.
 
         ABAP Class Code:
-        {final_code}
+        {draft_code}
         """
-
-        resp_purpose = self.llm.invoke([
-            SystemMessage(content="You are an SAP documentation writer."),
-            HumanMessage(content=purpose_prompt)
-        ])
-        purpose_text = getattr(resp_purpose, "content", str(resp_purpose)).strip()
+        async def run_async():
+            return await self._call_llm_with_retry([system_message, HumanMessage(content=draft_prompt)])
+        
+        draft_code = asyncio.run(run_async())
+        # resp_purpose = self.llm.invoke([
+        #     SystemMessage(content="You are an SAP documentation writer."),
+        #     HumanMessage(content=purpose_prompt)
+        # ])
+        purpose_text = getattr(draft_code, "content", str(draft_code)).strip()
 
         self.logger.info("✅ Global ABAP class and purpose generated successfully.")
         return {
             "purpose": purpose_text,
-            "code": final_code,
+            "code": draft_code,
             "type": "class"
         }
