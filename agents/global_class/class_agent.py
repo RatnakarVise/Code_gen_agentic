@@ -146,12 +146,15 @@ class ClassAgent(BaseAgent):
         Requirement Context:
         {full_context}
         """
-
-        resp_draft = self.llm.invoke([
-            system_message,
-            HumanMessage(content=draft_prompt)
-        ])
-        draft_code = getattr(resp_draft, "content", str(resp_draft))
+        async def run_async():
+            return await self._call_llm_with_retry([system_message, HumanMessage(content=draft_prompt)])
+        
+        draft_code = asyncio.run(run_async())
+        # resp_draft = self.llm.invoke([
+        #     system_message,
+        #     HumanMessage(content=draft_prompt)
+        # ])
+        # draft_code = getattr(resp_draft, "content", str(resp_draft))
         draft_code = re.sub(r"```(?:abap)?|```", "", draft_code).strip()
 
         # --- Step 2: Refine Class ---
@@ -184,14 +187,11 @@ class ClassAgent(BaseAgent):
         ABAP Class Code:
         {draft_code}
         """
-        async def run_async():
-            return await self._call_llm_with_retry([system_message, HumanMessage(content=draft_prompt)])
         
-        draft_code = asyncio.run(run_async())
-        # resp_purpose = self.llm.invoke([
-        #     SystemMessage(content="You are an SAP documentation writer."),
-        #     HumanMessage(content=purpose_prompt)
-        # ])
+        resp_purpose = self.llm.invoke([
+            SystemMessage(content="You are an SAP documentation writer."),
+            HumanMessage(content=purpose_prompt)
+        ])
         purpose_text = getattr(draft_code, "content", str(draft_code)).strip()
 
         self.logger.info("✅ Global ABAP class and purpose generated successfully.")
