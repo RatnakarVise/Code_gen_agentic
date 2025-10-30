@@ -22,6 +22,8 @@ from agents.structure.structure_agent import StructureAgent
 from agents.table.table_agent import TableAgent
 from agents.global_class.class_agent import ClassAgent
 from agents.report.report_program_agent import ReportProgramAgent
+from agents.CDS.cds_agent import CdsAgent
+from agents.value_help.value_help_agent import ValueHelpAgent
 
 # ------------------------------ CONFIG ------------------------------
 from utils.logger_config import setup_logger
@@ -80,20 +82,28 @@ def run_job(job_id: str, requirement_text: str):
             return "\n\n".join(matched).strip()
 
         # Extract relevant sections
-        table_text = get_section_text("4")       # Data model / table design
-        structure_text = get_section_text("5")   # Structure / types
-        report_text = get_section_text("6")      # Report logic
+        structure_text = get_section_text("2")   # Structure / types
+        table_text = get_section_text("3")       # Data model / table design
+        value_help_text = get_section_text("4")  # Value help CDS view
+        cds_text = get_section_text("5")         # CDS view design
+        fm_text = get_section_text("6")          # Function module design
         class_text = get_section_text("7")       # Global class design
+        report_text = get_section_text("8")      # Report logic
 
-        logger.info(f"[{job_id}] Section 4 length: {len(table_text)}")
-        logger.info(f"[{job_id}] Section 5 length: {len(structure_text)}")
-        logger.info(f"[{job_id}] Section 6 length: {len(report_text)}")
+        
+        logger.info(f"[{job_id}] Section 2 length: {len(structure_text)}")
+        logger.info(f"[{job_id}] Section 3 length: {len(table_text)}")
+        logger.info(f"[{job_id}] Section 4 length: {len(value_help_text)}")
+        logger.info(f"[{job_id}] Section 5 length: {len(cds_text)}")
+        logger.info(f"[{job_id}] Section 6 length: {len(fm_text)}")
         logger.info(f"[{job_id}] Section 7 length: {len(class_text)}")
+        logger.info(f"[{job_id}] Section 8 length: {len(report_text)}")
 
         # --- Run AI agents ---
         structure_result = ""
         table_result = ""
         class_result = ""
+        cds_result = ""
         purposes = {}
         files_to_zip = []
 
@@ -127,6 +137,41 @@ def run_job(job_id: str, requirement_text: str):
         else:
             logger.info(f"[{job_id}] No table section found — skipping TableAgent.")
 
+        # -------------------- Value Help Agent --------------------
+        if value_help_text and not is_na(value_help_text):
+            logger.info(f"[{job_id}] Running ValueHelpAgent...")
+            value_agent = ValueHelpAgent(job_dir=job_dir)
+            value_output = value_agent.run(
+                value_help_text
+            )
+            value_help_code = value_output.get("code", "")
+            purposes["Value_Help"] = value_output.get("purpose", "")
+
+            if value_help_code:
+                files_to_zip.append(("value_help.txt", value_help_code))
+            else:
+                logger.warning(f"[{job_id}] ValueHelpAgent returned empty code.")
+        else:
+            logger.info(f"[{job_id}] No Value Help section found — skipping ValueHelpAgent.")
+
+        # -------------------- CDS Agent --------------------
+        if cds_text and not is_na(cds_text):
+            logger.info(f"[{job_id}] Running CDSAgent...")
+            cds_agent = CdsAgent(job_dir=job_dir)
+            cds_output = cds_agent.run(
+                cds_text
+                # purposes=purposes,
+            )
+            cds_code = cds_output.get("code", "")
+            purposes["cds"] = cds_output.get("purpose", "")
+
+            if cds_code:
+                files_to_zip.append(("cds.txt", cds_code))
+            else:
+                logger.warning(f"[{job_id}] CdsAgent returned empty code.")
+        else:
+            logger.info(f"[{job_id}] No cds section found — skipping CdsAgent.")
+
         # -------------------- Class Agent --------------------
         if class_text and not is_na(class_text):
             logger.info(f"[{job_id}] Running ClassAgent...")
@@ -134,11 +179,11 @@ def run_job(job_id: str, requirement_text: str):
             class_output = class_agent.run(
                 class_text,
                 purposes=purposes,
-                metadata={
-                    "structure_text": structure_result,
-                    "table_text": table_result,
-                    "report_text": report_text,
-                },
+                # metadata={
+                #     "structure_text": structure_result,
+                #     "table_text": table_result,
+                #     "report_text": report_text,
+                # },
             )
             class_code = class_output.get("code", "")
             purposes["class"] = class_output.get("purpose", "")
@@ -159,6 +204,8 @@ def run_job(job_id: str, requirement_text: str):
                 metadata["structure_text"] = structure_code
             if "table_code" in locals() and table_code:
                 metadata["table_text"] = table_code
+            if "class_code" in locals() and class_code:
+                metadata["class_text"] = class_code
 
             report_agent = ReportProgramAgent(job_dir=job_dir)
             report_output = report_agent.run(
