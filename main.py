@@ -4,7 +4,7 @@ FastAPI app + background job controller for modular AI agents.
 """
 
 import os
-import io
+import io,re
 import zipfile
 import uuid
 import logging
@@ -24,6 +24,7 @@ from agents.global_class.class_agent import ClassAgent
 from agents.report.report_program_agent import ReportProgramAgent
 from agents.CDS.cds_agent import CdsAgent
 from agents.value_help.value_help_agent import ValueHelpAgent
+# from agents.FM.function_module_agent import FunctionModuleAgent
 
 # ------------------------------ CONFIG ------------------------------
 from utils.logger_config import setup_logger
@@ -145,7 +146,7 @@ def run_job(job_id: str, requirement_text: str):
                 value_help_text
             )
             value_help_code = value_output.get("code", "")
-            purposes["Value_Help"] = value_output.get("purpose", "")
+            purposes["value_help"] = value_output.get("purpose", "")
 
             if value_help_code:
                 files_to_zip.append(("value_help.txt", value_help_code))
@@ -153,14 +154,27 @@ def run_job(job_id: str, requirement_text: str):
                 logger.warning(f"[{job_id}] ValueHelpAgent returned empty code.")
         else:
             logger.info(f"[{job_id}] No Value Help section found — skipping ValueHelpAgent.")
+        
+        value_help_entity = None
+
+        if value_help_code:
+            # Optional: Extract entity name from the code (e.g., "define view entity ZCDS_VENDOR_VH")
+            match = re.search(r"define\s+view\s+entity\s+(\w+)", value_help_code, re.IGNORECASE)
+            if match:
+                value_help_entity = match.group(1)
 
         # -------------------- CDS Agent --------------------
         if cds_text and not is_na(cds_text):
             logger.info(f"[{job_id}] Running CDSAgent...")
             cds_agent = CdsAgent(job_dir=job_dir)
+            metadata = {}
+            if value_help_entity:
+                metadata["value_help_entity"] = value_help_entity
+            if purposes.get("value_help"):
+                metadata["value_help_purpose"] = purposes["value_help"]
             cds_output = cds_agent.run(
-                cds_text
-                # purposes=purposes,
+                cds_text,
+                metadata=metadata if metadata else None,
             )
             cds_code = cds_output.get("code", "")
             purposes["cds"] = cds_output.get("purpose", "")
@@ -179,11 +193,6 @@ def run_job(job_id: str, requirement_text: str):
             class_output = class_agent.run(
                 class_text,
                 purposes=purposes,
-                # metadata={
-                #     "structure_text": structure_result,
-                #     "table_text": table_result,
-                #     "report_text": report_text,
-                # },
             )
             class_code = class_output.get("code", "")
             purposes["class"] = class_output.get("purpose", "")
@@ -195,8 +204,25 @@ def run_job(job_id: str, requirement_text: str):
         else:
             logger.info(f"[{job_id}] No class section found — skipping ClassAgent.")
 
-        # -------------------- Report Agent (Optional) --------------------
-        # Uncomment if needed
+        # -------------------- FM Agent --------------------
+        # if fm_text and not is_na(fm_text):
+        #     logger.info(f"[{job_id}] Running ClassAgent...")
+        #     class_agent = ClassAgent(job_dir=job_dir)
+        #     class_output = class_agent.run(
+        #         class_text,
+        #         purposes=purposes,
+        #     )
+        #     class_code = class_output.get("code", "")
+        #     purposes["class"] = class_output.get("purpose", "")
+
+        #     if class_code:
+        #         files_to_zip.append(("class.txt", class_code))
+        #     else:
+        #         logger.warning(f"[{job_id}] ClassAgent returned empty code.")
+        # else:
+        #     logger.info(f"[{job_id}] No class section found — skipping ClassAgent.")
+
+        # -------------------- Report Agent  --------------------
         if report_text and not is_na(report_text):
             logger.info(f"[{job_id}] Running ReportProgramAgent...")
             metadata = {}
@@ -218,6 +244,8 @@ def run_job(job_id: str, requirement_text: str):
                 files_to_zip.append(("report.txt", report_code))
         else:
             logger.info(f"[{job_id}] No report section found — skipping ReportProgramAgent.")
+
+        del structure_text, table_text, value_help_text, cds_text, class_text, report_text
 
         # -------------------- Finalize ZIP --------------------
         if not files_to_zip:
