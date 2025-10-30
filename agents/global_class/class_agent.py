@@ -98,7 +98,7 @@ class ClassAgent(BaseAgent):
         if not section_text:
             self.logger.warning("No text provided to ClassAgent.")
             return {"purpose": "", "code": ""}
-
+        # print(section_text)
         full_context = section_text.strip()
 
         # Merge purposes from previous agents
