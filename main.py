@@ -288,7 +288,7 @@ def create_job(payload: RequirementPayload, background_tasks: BackgroundTasks):
     return JSONResponse({"job_id": job_id, "status": "queued"})
 
 
-@app.get("/jobs/{job_id}")
+@app.get("/generate/{job_id}")
 def job_status(job_id: str):
     """Check job status or download ZIP if finished."""
     job = jobs.get(job_id)
