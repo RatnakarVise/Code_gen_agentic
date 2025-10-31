@@ -86,7 +86,7 @@ class ValueHelpAgent(BaseAgent):
             self.logger.warning("No field description provided to ValueHelpAgent.")
             return {"type": "value_help", "purpose": "", "code": ""}
 
-        self.job_dir.mkdir(parents=True, exist_ok=True)
+        # self.job_dir.mkdir(parents=True, exist_ok=True)
         self.logger.info("🚀 Running ValueHelpAgent with provided field description...")
 
         # --- Retrieve relevant RAG context ---
@@ -136,9 +136,9 @@ class ValueHelpAgent(BaseAgent):
         value_help_entity = data.get("value_help_entity", "").strip()
 
         # --- Save CDS file ---
-        vh_file = self.job_dir / "value_help_cds_view.abap"
-        vh_file.write_text(value_help_code, encoding="utf-8")
-        self.logger.info(f"💾 Value Help CDS view saved to: {vh_file}")
+        # vh_file = self.job_dir / "value_help_cds_view.abap"
+        # vh_file.write_text(value_help_code, encoding="utf-8")
+        # self.logger.info(f"💾 Value Help CDS view saved to: {vh_file}")
         self.logger.info(f"📝 Purpose: {value_help_purpose}")
 
         return {

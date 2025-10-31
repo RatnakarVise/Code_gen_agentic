@@ -23,8 +23,8 @@ class CdsAgent(BaseAgent):
     def _init_llm(self):
         """Initialize the LLM client."""
         return ChatOpenAI(
-            model_name=os.getenv("CDS_MODEL_NAME", "gpt-5"),
-            temperature=float(os.getenv("CDS_TEMPERATURE", "0.1")),
+            model_name=os.getenv("CDS_MODEL_NAME", "gpt-4.1-mini"),
+            temperature=float(os.getenv("CDS_TEMPERATURE", "0.3")),
             openai_api_key=os.getenv("OPENAI_API_KEY"),
         )
 
@@ -33,7 +33,7 @@ class CdsAgent(BaseAgent):
         """
         Loads or builds FAISS vector DB from cds_requirements.txt file.
         """
-        kb_path = Path(os.path.dirname(__file__)) / "CDS_RAG_KB.txt"
+        kb_path = Path(os.path.dirname(__file__)) / "cds_requirements.txt"
         vs_path = Path(os.path.dirname(__file__)) / "cds_vector_store"
 
         embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
@@ -106,8 +106,9 @@ class CdsAgent(BaseAgent):
             )
         )
         
-        value_help_entity = metadata.get("value_help_entity") if metadata else None
-        value_help_purpose = metadata.get("value_help_purpose") if metadata else None
+        value_help_entity = metadata.get("value_help_entity") if metadata and "value_help_entity" in metadata else None
+        value_help_purpose = metadata.get("value_help_purpose") if metadata and "value_help_purpose" in metadata else None
+
         
         # --- Prompt to LLM ---
         prompt = f"""
@@ -156,11 +157,10 @@ class CdsAgent(BaseAgent):
         # --- Save result ---
         # cds_file = self.job_dir / "CDS_View.abap"
         import uuid
-        cds_file = self.job_dir / f"CDS_View_{uuid.uuid4().hex}.abap"
+        # cds_file = self.job_dir / f"CDS_View_{uuid.uuid4().hex}.abap"
+        # cds_file.write_text(cds_code, encoding="utf-8")
 
-        cds_file.write_text(cds_code, encoding="utf-8")
-
-        self.logger.info(f"✅ RAP CDS view saved to: {cds_file}")
+        # self.logger.info(f"✅ RAP CDS view saved to: {cds_file}")
         self.logger.debug(f"Extracted CDS Purpose: {cds_purpose[:200]}...")
 
         return {

@@ -24,7 +24,7 @@ from agents.global_class.class_agent import ClassAgent
 from agents.report.report_program_agent import ReportProgramAgent
 from agents.CDS.cds_agent import CdsAgent
 from agents.value_help.value_help_agent import ValueHelpAgent
-# from agents.FM.function_module_agent import FunctionModuleAgent
+from agents.FM.fm_agent import FmAgent
 
 # ------------------------------ CONFIG ------------------------------
 from utils.logger_config import setup_logger
@@ -186,6 +186,24 @@ def run_job(job_id: str, requirement_text: str):
         else:
             logger.info(f"[{job_id}] No cds section found — skipping CdsAgent.")
 
+        # -------------------- FM Agent --------------------
+        if fm_text and not is_na(fm_text):
+            logger.info(f"[{job_id}] Running ClassAgent...")
+            fm_agent = FmAgent(job_dir=job_dir)
+            fm_output = fm_agent.run(
+                fm_text,
+                purposes=purposes,
+            )
+            fm_code = fm_output.get("code", "")
+            purposes["fm"] = fm_output.get("purpose", "")
+
+            if fm_code:
+                files_to_zip.append(("fm.txt", fm_code))
+            else:
+                logger.warning(f"[{job_id}] FmAgent returned empty code.")
+        else:
+            logger.info(f"[{job_id}] No fm section found — skipping FmAgent.")
+
         # -------------------- Class Agent --------------------
         if class_text and not is_na(class_text):
             logger.info(f"[{job_id}] Running ClassAgent...")
@@ -203,24 +221,6 @@ def run_job(job_id: str, requirement_text: str):
                 logger.warning(f"[{job_id}] ClassAgent returned empty code.")
         else:
             logger.info(f"[{job_id}] No class section found — skipping ClassAgent.")
-
-        # -------------------- FM Agent --------------------
-        # if fm_text and not is_na(fm_text):
-        #     logger.info(f"[{job_id}] Running ClassAgent...")
-        #     class_agent = ClassAgent(job_dir=job_dir)
-        #     class_output = class_agent.run(
-        #         class_text,
-        #         purposes=purposes,
-        #     )
-        #     class_code = class_output.get("code", "")
-        #     purposes["class"] = class_output.get("purpose", "")
-
-        #     if class_code:
-        #         files_to_zip.append(("class.txt", class_code))
-        #     else:
-        #         logger.warning(f"[{job_id}] ClassAgent returned empty code.")
-        # else:
-        #     logger.info(f"[{job_id}] No class section found — skipping ClassAgent.")
 
         # -------------------- Report Agent  --------------------
         if report_text and not is_na(report_text):
