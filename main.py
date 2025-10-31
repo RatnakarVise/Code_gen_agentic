@@ -83,22 +83,27 @@ def run_job(job_id: str, requirement_text: str):
             return "\n\n".join(matched).strip()
 
         # Extract relevant sections
-        structure_text = get_section_text("2")   # Structure / types
-        table_text = get_section_text("3")       # Data model / table design
-        value_help_text = get_section_text("4")  # Value help CDS view
-        cds_text = get_section_text("5")         # CDS view design
-        fm_text = get_section_text("6")          # Function module design
-        class_text = get_section_text("7")       # Global class design
-        report_text = get_section_text("8")      # Report logic
+        structure_text = get_section_text("3")   # Structure / types
+        table_text = get_section_text("4")       # Data model / table design
+        value_help_text = get_section_text("5")  # Value help CDS view
+        cds_text = get_section_text("6")         # CDS view design
+        fm_text = get_section_text("7")          # Function module design
+        class_text = get_section_text("8")       # Global class design
+        # report_text = get_section_text("9")      # Report logic
+        report_text = "\n\n".join([
+            get_section_text("1"),  # Purpose or Introduction
+            get_section_text("2"),  # Scope or Requirements
+            get_section_text("9"),  # Report logic
+        ]).strip()
 
         
-        logger.info(f"[{job_id}] Section 2 length: {len(structure_text)}")
-        logger.info(f"[{job_id}] Section 3 length: {len(table_text)}")
-        logger.info(f"[{job_id}] Section 4 length: {len(value_help_text)}")
-        logger.info(f"[{job_id}] Section 5 length: {len(cds_text)}")
-        logger.info(f"[{job_id}] Section 6 length: {len(fm_text)}")
-        logger.info(f"[{job_id}] Section 7 length: {len(class_text)}")
-        logger.info(f"[{job_id}] Section 8 length: {len(report_text)}")
+        logger.info(f"[{job_id}] Section 3 length: {len(structure_text)}")
+        logger.info(f"[{job_id}] Section 4 length: {len(table_text)}")
+        logger.info(f"[{job_id}] Section 5 length: {len(value_help_text)}")
+        logger.info(f"[{job_id}] Section 6 length: {len(cds_text)}")
+        logger.info(f"[{job_id}] Section 7 length: {len(fm_text)}")
+        logger.info(f"[{job_id}] Section 8 length: {len(class_text)}")
+        logger.info(f"[{job_id}] Section 9 length: {len(report_text)}")
 
         # --- Run AI agents ---
         structure_result = ""
