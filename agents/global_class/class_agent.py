@@ -192,7 +192,7 @@ class ClassAgent(BaseAgent):
             SystemMessage(content="You are an SAP documentation writer."),
             HumanMessage(content=purpose_prompt)
         ])
-        purpose_text = getattr(draft_code, "content", str(draft_code)).strip()
+        purpose_text = getattr(resp_purpose, "content", str(draft_code)).strip()
 
         self.logger.info("✅ Global ABAP class and purpose generated successfully.")
         return {

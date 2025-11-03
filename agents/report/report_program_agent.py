@@ -132,6 +132,7 @@ class ReportProgramAgent(BaseAgent):
                 "Always use includes for data declaration and selection screen first and then main program logic."
                 "Always use local classes and methods for modularization."
                 "Before any include program and class logic, always add the main Executable Program logic which will call those created includes and classes."
+                "Additional Context which is getting passed to you is the purpose of already existing artifacts like CDS views, Function Modules, Global Classes etc. Do not recreate those artifacts, just refer to them in the report program code if needed."
             )
         )
 
