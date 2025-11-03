@@ -131,9 +131,24 @@ class ValueHelpAgent(BaseAgent):
             self.logger.debug(f"Raw LLM output:\n{raw}")
             raise
 
-        value_help_code = data.get("value_help_code", "").strip()
-        value_help_purpose = data.get("value_help_purpose", "").strip()
-        value_help_entity = data.get("value_help_entity", "").strip()
+        # --- Normalize parsed data (handle both list and dict) ---
+        if isinstance(data, list):
+            if data and isinstance(data[0], dict):
+                data_obj = data[0]
+            else:
+                self.logger.warning("⚠️ LLM returned a list without dict items; coercing to empty dict.")
+                data_obj = {}
+        elif isinstance(data, dict):
+            data_obj = data
+        else:
+            self.logger.warning(f"⚠️ Unexpected LLM output type: {type(data)}; coercing to empty dict.")
+            data_obj = {}
+
+        # --- Extract fields safely ---
+        value_help_code = str(data_obj.get("value_help_code", "")).strip()
+        value_help_purpose = str(data_obj.get("value_help_purpose", "")).strip()
+        value_help_entity = str(data_obj.get("value_help_entity", "")).strip()
+
 
         # --- Save CDS file ---
         # vh_file = self.job_dir / "value_help_cds_view.abap"

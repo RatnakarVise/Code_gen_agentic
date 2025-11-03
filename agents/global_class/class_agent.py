@@ -129,7 +129,7 @@ class ClassAgent(BaseAgent):
                 "Use naming convention ZCL_<FUNCTION> for the class name. "
                 "Follow SAP best practices: PUBLIC, PROTECTED, PRIVATE sections, method definitions, and exception handling. "
                 "Ensure code is ready to be activated directly in Eclipse (no markdown, no explanations). "
-                "Do not use local classes or includes — only one global class definition and implementation."
+                "Do not use local classes or includes — only global class definition and implementation."
             )
         )
 

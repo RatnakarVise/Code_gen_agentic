@@ -154,13 +154,7 @@ class CdsAgent(BaseAgent):
         cds_code = data.get("cds_code", "").strip()
         cds_purpose = data.get("cds_purpose", "").strip()
 
-        # --- Save result ---
-        # cds_file = self.job_dir / "CDS_View.abap"
         import uuid
-        # cds_file = self.job_dir / f"CDS_View_{uuid.uuid4().hex}.abap"
-        # cds_file.write_text(cds_code, encoding="utf-8")
-
-        # self.logger.info(f"✅ RAP CDS view saved to: {cds_file}")
         self.logger.debug(f"Extracted CDS Purpose: {cds_purpose[:200]}...")
 
         return {
